@@ -16,6 +16,7 @@ SECRET_KEYS = {
     "samsclub_session_cookie",
     "twilio_sid",
     "twilio_token",
+    "gmail_app_password",
 }
 
 
@@ -30,6 +31,9 @@ def _build_view(db: Session) -> SettingsView:
         "twilio_token",
         "twilio_from_phone",
         "twilio_to_phone",
+        "gmail_user",
+        "gmail_app_password",
+        "email_to",
         "webshare_proxies",
         "monitor_enabled",
         "monitor_interval_min",
@@ -77,8 +81,15 @@ def test_alert(
     db: Session = Depends(get_db),
     _: User = Depends(require_owner),
 ):
-    body = payload.body or "ResellIQ test alert — your SMS pipeline works."
-    result = notify.send_sms(db, body)
+    body = payload.body or "ResellIQ test alert — your alert pipeline works."
+    result = notify.send_alert(
+        db,
+        body,
+        subject="ResellIQ test alert",
+        body_html=f"<p>{body}</p><p style='color:#888;font-size:12px'>If you're seeing this in your inbox, your Gmail SMTP setup is working.</p>",
+    )
     if not result.ok:
-        raise HTTPException(status_code=400, detail=result.error or "send failed")
+        raise HTTPException(
+            status_code=400, detail="; ".join(result.errors) or "send failed"
+        )
     return {"ok": True, "via": result.via, "to": result.to}

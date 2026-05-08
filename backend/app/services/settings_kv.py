@@ -21,6 +21,9 @@ KEYS = {
     "twilio_token",
     "twilio_from_phone",       # Twilio-owned number
     "twilio_to_phone",         # the user's mobile number
+    "gmail_user",              # sender Gmail address
+    "gmail_app_password",      # 16-char app password from Google
+    "email_to",                # recipient address (can differ from gmail_user)
     "monitor_enabled",         # "true" / "false" master switch
     "monitor_interval_min",    # int minutes between cycles, default 15
     "agent_last_heartbeat_at", # ISO-8601 timestamp of last agent contact

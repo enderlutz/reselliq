@@ -240,6 +240,9 @@ export interface AppSettings {
   twilio_token?: string | null;
   twilio_from_phone?: string | null;
   twilio_to_phone?: string | null;
+  gmail_user?: string | null;
+  gmail_app_password?: string | null;
+  email_to?: string | null;
   webshare_proxies?: string | null;
   monitor_enabled?: string | null;
   monitor_interval_min?: string | null;

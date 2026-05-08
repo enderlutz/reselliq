@@ -395,6 +395,9 @@ class SettingsView(BaseModel):
     twilio_token: Optional[str] = None
     twilio_from_phone: Optional[str] = None
     twilio_to_phone: Optional[str] = None
+    gmail_user: Optional[str] = None
+    gmail_app_password: Optional[str] = None
+    email_to: Optional[str] = None
     webshare_proxies: Optional[str] = None
     monitor_enabled: Optional[str] = None
     monitor_interval_min: Optional[str] = None
@@ -409,6 +412,9 @@ class SettingsUpdate(BaseModel):
     twilio_token: Optional[str] = None
     twilio_from_phone: Optional[str] = None
     twilio_to_phone: Optional[str] = None
+    gmail_user: Optional[str] = None
+    gmail_app_password: Optional[str] = None
+    email_to: Optional[str] = None
     webshare_proxies: Optional[str] = None
     monitor_enabled: Optional[str] = None
     monitor_interval_min: Optional[str] = None

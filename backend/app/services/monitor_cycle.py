@@ -258,10 +258,10 @@ def _process_samsclub(db: Session, watches: list[Watch], cookie: Optional[str]) 
                 except SessionExpired:
                     session_dead = True
                     watch.last_check_error = "Sam's Club session expired — re-paste cookie"
-                    # SMS the user once
-                    notify.send_sms(
+                    notify.send_alert(
                         db,
                         "⚠️ ResellIQ: Sam's Club session expired. Open Settings and paste a fresh cookie.",
+                        subject="ResellIQ: Sam's Club session expired",
                     )
                     db.commit()
                     break
@@ -290,7 +290,7 @@ def _apply_stock_update(
         ws.last_seen_in_stock_at = datetime.utcnow()
 
     if crossed_up and not _recent_alert(db, watch.id, ws.store_id):
-        body = notify.format_alert(
+        kwargs = dict(
             retailer=watch.retailer,
             product_name=watch.product_name,
             stock_count=new_qty,
@@ -298,7 +298,12 @@ def _apply_stock_update(
             store_address=ws.store_address or "",
             distance_mi=ws.distance_mi or 0.0,
         )
-        result = notify.send_sms(db, body)
+        body = notify.format_alert(**kwargs)
+        body_html = notify.format_alert_html(**kwargs)
+        subject = (
+            f"{kwargs['store_name']} — {new_qty}x {watch.product_name}"
+        )
+        result = notify.send_alert(db, body, subject=subject, body_html=body_html)
         db.add(
             WatchAlert(
                 watch_id=watch.id,
@@ -309,10 +314,10 @@ def _apply_stock_update(
                 sku=watch.sku,
                 product_name=watch.product_name,
                 stock_count=new_qty,
-                sent_via=result.via,
-                sent_to=result.to,
+                sent_via=",".join(result.via) if result.via else None,
+                sent_to=",".join(result.to) if result.to else None,
                 ok=result.ok,
-                error=result.error,
+                error="; ".join(result.errors) if result.errors else None,
             )
         )
 

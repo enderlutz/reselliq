@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Send, Loader2, CheckCircle2, KeyRound, Power, AlertCircle } from "lucide-react";
+import { Send, Loader2, CheckCircle2, KeyRound, Power, AlertCircle, Mail, Phone } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Investor, AppSettings } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
@@ -100,6 +100,9 @@ function NotificationsSection() {
     twilio_token: "",
     twilio_from_phone: "",
     twilio_to_phone: "",
+    gmail_user: "",
+    gmail_app_password: "",
+    email_to: "",
   });
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -113,6 +116,9 @@ function NotificationsSection() {
         twilio_token: "",
         twilio_from_phone: r.data.twilio_from_phone || "",
         twilio_to_phone: r.data.twilio_to_phone || "",
+        gmail_user: r.data.gmail_user || "",
+        gmail_app_password: "",
+        email_to: r.data.email_to || "",
       });
     });
   useEffect(() => {
@@ -127,6 +133,9 @@ function NotificationsSection() {
       if (draft.twilio_token) body.twilio_token = draft.twilio_token;
       body.twilio_from_phone = draft.twilio_from_phone;
       body.twilio_to_phone = draft.twilio_to_phone;
+      body.gmail_user = draft.gmail_user;
+      if (draft.gmail_app_password) body.gmail_app_password = draft.gmail_app_password;
+      body.email_to = draft.email_to;
       await api.patch("/settings", body);
       load();
     } finally {
@@ -138,10 +147,12 @@ function NotificationsSection() {
     setTestResult("");
     try {
       const r = await api.post("/settings/test-alert", {});
+      const channels = (r.data.via || []).join(" + ") || "log";
+      const tos = (r.data.to || []).join(", ") || "no destination";
       setTestResult(
-        r.data.via === "sms"
-          ? `Sent SMS to ${r.data.to}`
-          : `Logged only — Twilio creds incomplete (${r.data.to ? "to: " + r.data.to : "no destination"})`
+        channels === "log"
+          ? "Logged only — no email or SMS configured yet"
+          : `Sent via ${channels} → ${tos}`
       );
     } catch (e: any) {
       setTestResult(`Error: ${e?.response?.data?.detail || e.message}`);
@@ -152,64 +163,127 @@ function NotificationsSection() {
 
   if (!s) return null;
   const twilioConfigured = !!(s.twilio_sid && s.twilio_token);
+  const gmailConfigured = !!(s.gmail_user && s.gmail_app_password);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 flex-wrap">
           Notifications
-          {twilioConfigured ? (
-            <Badge variant="success" className="ml-2">
-              <CheckCircle2 className="h-3 w-3 mr-1" /> Twilio configured
+          {gmailConfigured && (
+            <Badge variant="success" className="ml-1">
+              <Mail className="h-3 w-3 mr-1" /> Email ready
             </Badge>
-          ) : (
-            <Badge variant="warning" className="ml-2">
-              SMS will log-only
+          )}
+          {twilioConfigured && (
+            <Badge variant="success">
+              <Phone className="h-3 w-3 mr-1" /> SMS ready
             </Badge>
+          )}
+          {!gmailConfigured && !twilioConfigured && (
+            <Badge variant="warning">No channel configured</Badge>
           )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         <p className="text-sm text-muted-foreground">
-          When a watch crosses its threshold, an SMS goes to your phone via Twilio. If creds are
-          missing, the alert is just logged so you don't lose data.
+          When a watch crosses its threshold, alerts go via every channel you've configured.
+          Email + SMS together, just one, or fall back to logs only. We recommend email — free,
+          richer formatting, and a permanent inbox record.
         </p>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>Twilio Account SID</Label>
-            <Input
-              type="password"
-              value={draft.twilio_sid}
-              placeholder={s.twilio_sid || "ACxxxxxxxx…"}
-              onChange={(e) => setDraft({ ...draft, twilio_sid: e.target.value })}
-            />
+
+        {/* Email section */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Mail className="h-4 w-4 text-[hsl(var(--chip-cyan))]" />
+            <h4 className="text-sm font-semibold uppercase tracking-wider">Email (Gmail SMTP)</h4>
           </div>
-          <div className="space-y-1.5">
-            <Label>Twilio Auth Token</Label>
-            <Input
-              type="password"
-              value={draft.twilio_token}
-              placeholder={s.twilio_token || "•••••"}
-              onChange={(e) => setDraft({ ...draft, twilio_token: e.target.value })}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Sender Gmail address</Label>
+              <Input
+                value={draft.gmail_user}
+                placeholder="alerts@gmail.com"
+                onChange={(e) => setDraft({ ...draft, gmail_user: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Gmail app password (16 chars)</Label>
+              <Input
+                type="password"
+                value={draft.gmail_app_password}
+                placeholder={s.gmail_app_password || "xxxx xxxx xxxx xxxx"}
+                onChange={(e) => setDraft({ ...draft, gmail_app_password: e.target.value })}
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Recipient (where alerts go)</Label>
+              <Input
+                value={draft.email_to}
+                placeholder="me@gmail.com (defaults to sender if blank)"
+                onChange={(e) => setDraft({ ...draft, email_to: e.target.value })}
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>From phone (Twilio number)</Label>
-            <Input
-              value={draft.twilio_from_phone}
-              placeholder="+15551234567"
-              onChange={(e) => setDraft({ ...draft, twilio_from_phone: e.target.value })}
-            />
+          <p className="text-xs text-muted-foreground">
+            Get a 16-char app password at{" "}
+            <a
+              href="https://myaccount.google.com/apppasswords"
+              target="_blank"
+              rel="noreferrer"
+              className="text-[hsl(var(--chip-cyan))] underline"
+            >
+              myaccount.google.com/apppasswords
+            </a>
+            . Requires 2FA enabled on the Google account first.
+          </p>
+        </div>
+
+        {/* SMS section */}
+        <div className="space-y-3 pt-4 border-t border-white/5">
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-[hsl(var(--chip-orange))]" />
+            <h4 className="text-sm font-semibold uppercase tracking-wider">SMS (Twilio)</h4>
+            <span className="text-xs text-muted-foreground">— optional, costs ~$0.008/msg</span>
           </div>
-          <div className="space-y-1.5">
-            <Label>To phone (your mobile)</Label>
-            <Input
-              value={draft.twilio_to_phone}
-              placeholder="+15557654321"
-              onChange={(e) => setDraft({ ...draft, twilio_to_phone: e.target.value })}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Twilio Account SID</Label>
+              <Input
+                type="password"
+                value={draft.twilio_sid}
+                placeholder={s.twilio_sid || "ACxxxxxxxx…"}
+                onChange={(e) => setDraft({ ...draft, twilio_sid: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Twilio Auth Token</Label>
+              <Input
+                type="password"
+                value={draft.twilio_token}
+                placeholder={s.twilio_token || "•••••"}
+                onChange={(e) => setDraft({ ...draft, twilio_token: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>From phone (Twilio number)</Label>
+              <Input
+                value={draft.twilio_from_phone}
+                placeholder="+15551234567"
+                onChange={(e) => setDraft({ ...draft, twilio_from_phone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>To phone (your mobile)</Label>
+              <Input
+                value={draft.twilio_to_phone}
+                placeholder="+15557654321"
+                onChange={(e) => setDraft({ ...draft, twilio_to_phone: e.target.value })}
+              />
+            </div>
           </div>
         </div>
+
         <div className="flex items-center gap-2 pt-2">
           <Button onClick={save} disabled={busy}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}

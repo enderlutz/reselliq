@@ -1,0 +1,5 @@
+# The agent reuses backend monitor modules, so it shares the backend's deps.
+# Easiest setup: re-use the backend's venv:
+#   cd backend && source venv/bin/activate && cd ../agent && python agent.py
+# Or install the same deps into a fresh venv:
+-r ../backend/requirements.txt

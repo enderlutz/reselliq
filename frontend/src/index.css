@@ -1,0 +1,199 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 230 32% 4%;
+    --foreground: 210 40% 98%;
+    --card: 226 30% 9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 226 30% 9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 200 100% 60%;
+    --primary-foreground: 222 47% 6%;
+    --secondary: 226 25% 14%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 226 25% 14%;
+    --muted-foreground: 220 14% 62%;
+    --accent: 200 100% 60%;
+    --accent-foreground: 222 47% 6%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 226 22% 17%;
+    --input: 226 22% 17%;
+    --ring: 200 100% 60%;
+    --radius: 0.875rem;
+
+    --chip-cyan: 200 100% 60%;
+    --chip-coral: 6 88% 62%;
+    --chip-indigo: 258 85% 65%;
+    --chip-orange: 22 92% 60%;
+    --chip-pink: 295 85% 65%;
+    --chip-emerald: 152 70% 50%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply text-foreground antialiased;
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+      Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1, "tnum" 1, "ss01" 1;
+    background:
+      radial-gradient(ellipse 80% 60% at 12% 8%, hsl(285 82% 60% / 0.95), transparent 60%),
+      radial-gradient(ellipse 80% 60% at 88% 92%, hsl(220 95% 60% / 0.9), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 50% 50%, hsl(258 75% 50% / 0.55), transparent 60%),
+      hsl(258 65% 30%);
+    background-attachment: fixed;
+  }
+}
+
+.shell {
+  background: hsl(228 35% 7% / 0.78);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid hsl(0 0% 100% / 0.06);
+  box-shadow:
+    inset 0 1px 0 0 hsl(0 0% 100% / 0.05),
+    0 35px 80px -20px hsl(0 0% 0% / 0.7),
+    0 12px 30px -10px hsl(0 0% 0% / 0.45);
+}
+
+.glass {
+  background: hsl(226 30% 9% / 0.7);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.prose-playbook {
+  color: hsl(var(--foreground));
+  line-height: 1.65;
+  font-size: 0.92rem;
+}
+.prose-playbook h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.75rem;
+  letter-spacing: -0.01em;
+}
+.prose-playbook h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 1.5rem 0 0.5rem;
+  color: hsl(var(--chip-cyan));
+  letter-spacing: -0.005em;
+}
+.prose-playbook h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1.25rem 0 0.4rem;
+}
+.prose-playbook h2:first-child,
+.prose-playbook h1:first-child {
+  margin-top: 0;
+}
+.prose-playbook p {
+  margin: 0.6rem 0;
+}
+.prose-playbook ul,
+.prose-playbook ol {
+  margin: 0.6rem 0 0.6rem 1.25rem;
+}
+.prose-playbook li {
+  margin: 0.2rem 0;
+}
+.prose-playbook ul {
+  list-style: disc;
+}
+.prose-playbook ol {
+  list-style: decimal;
+}
+.prose-playbook strong {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+.prose-playbook em {
+  color: hsl(var(--muted-foreground));
+}
+.prose-playbook code {
+  background: hsl(var(--secondary));
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: hsl(var(--chip-cyan));
+}
+.prose-playbook table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+  font-size: 0.86rem;
+}
+.prose-playbook table th {
+  text-align: left;
+  font-weight: 600;
+  background: hsl(212 50% 14% / 0.4);
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+}
+.prose-playbook table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+.prose-playbook table tr:last-child td {
+  border-bottom: none;
+}
+.prose-playbook hr {
+  margin: 1.25rem 0;
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+}
+.prose-playbook a {
+  color: hsl(var(--chip-cyan));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-playbook blockquote {
+  border-left: 2px solid hsl(var(--chip-orange));
+  padding-left: 0.85rem;
+  margin: 0.85rem 0;
+  color: hsl(var(--muted-foreground));
+}
+
+.table-head {
+  background: linear-gradient(
+    180deg,
+    hsl(212 65% 22% / 0.55),
+    hsl(212 50% 16% / 0.45)
+  );
+}
+
+.chip-shadow {
+  box-shadow:
+    0 1px 0 0 hsl(0 0% 100% / 0.18) inset,
+    0 8px 18px -8px hsl(0 0% 0% / 0.6);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 24px -4px hsl(var(--chip-cyan) / 0.5);
+}
+
+input::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+}

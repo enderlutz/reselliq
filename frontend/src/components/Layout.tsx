@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { DEMO_MODE } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StatusDot } from "@/components/StatusDot";
 
@@ -218,13 +219,18 @@ export default function Layout() {
     <div className="h-full p-3 sm:p-5 overflow-hidden">
       <div className="shell h-full rounded-2xl flex flex-col overflow-hidden">
         <header className="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-white/5">
-          <div className="flex items-center shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
             <img
               src="/logo.png"
               alt="ResellIQ"
               className="h-16 w-auto select-none -my-2"
               draggable={false}
             />
+            {DEMO_MODE && (
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-[hsl(var(--chip-orange)/0.18)] text-[hsl(var(--chip-orange))] border border-[hsl(var(--chip-orange)/0.4)]">
+                Preview
+              </span>
+            )}
           </div>
 
           <nav className="flex items-center gap-1.5">

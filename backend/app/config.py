@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     cloud_retailers_raw: str = "bestbuy"
     agent_token: Optional[str] = None  # required for agent endpoints
 
+    # Convenience: skip the login screen entirely. Frontend auto-signs in as
+    # the owner. Use only if you trust everyone who has the URL.
+    disable_auth: bool = False
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_origins_raw.split(",") if o.strip()]

@@ -18,14 +18,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = getToken();
-    if (!token) {
-      setLoading(false);
+    if (token) {
+      api
+        .get<User>("/auth/me")
+        .then((r) => setUser(r.data))
+        .catch(() => clearToken())
+        .finally(() => setLoading(false));
       return;
     }
+    // No token — try the bypass endpoint. If the backend has DISABLE_AUTH=true,
+    // it'll mint a JWT for the owner and we skip the login screen entirely.
     api
-      .get<User>("/auth/me")
-      .then((r) => setUser(r.data))
-      .catch(() => clearToken())
+      .post("/auth/bypass")
+      .then((r) => {
+        setToken(r.data.access_token);
+        setUser(r.data.user);
+      })
+      .catch(() => {
+        // Bypass disabled — user lands on /login as before
+      })
       .finally(() => setLoading(false));
   }, []);
 

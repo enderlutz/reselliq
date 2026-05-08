@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import Investor, User
 from ..schemas import TokenOut, UserCreate, UserOut
@@ -47,3 +48,29 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return UserOut.model_validate(user)
+
+
+@router.post("/bypass", response_model=TokenOut)
+def bypass_login(db: Session = Depends(get_db)):
+    """Convenience endpoint: when DISABLE_AUTH=true, mints a JWT for the owner
+    so the frontend can skip the login screen. Returns 403 if disabled."""
+    if not settings.disable_auth:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Auth bypass disabled",
+        )
+    user = db.query(User).filter(User.email == settings.owner_email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Owner user not seeded",
+        )
+    token = create_access_token({"sub": str(user.id), "role": user.role})
+    return TokenOut(access_token=token, user=UserOut.model_validate(user))
+
+
+@router.get("/config", response_model=dict)
+def auth_config():
+    """Public endpoint — frontend uses this on mount to know whether to try
+    the bypass before showing the login screen."""
+    return {"disable_auth": settings.disable_auth}

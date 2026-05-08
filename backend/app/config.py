@@ -28,8 +28,11 @@ class Settings(BaseSettings):
     supabase_service_key: Optional[str] = None  # service_role key
     supabase_bucket: str = "uploads"
 
-    # CORS — comma-separated list of allowed origins
+    # CORS — comma-separated list of allowed origins (exact match)
     cors_origins_raw: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # Optional regex for matching origins. Useful for Vercel preview deploys
+    # whose URLs change every push. Example: r"https://.*\.vercel\.app"
+    cors_origin_regex: Optional[str] = None
 
     # Seed creds (dev defaults; prod must override)
     owner_email: str = "owner@reselliq.local"

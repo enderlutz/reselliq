@@ -9,6 +9,7 @@ permanent inbox record.
 from __future__ import annotations
 
 import logging
+import re
 import smtplib
 from dataclasses import dataclass, field
 from email.mime.multipart import MIMEMultipart
@@ -60,7 +61,18 @@ def _send_email_gmail(
     body_text: str,
     body_html: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
-    """Send via Gmail SMTP using an app password. Built on stdlib smtplib."""
+    """Send via Gmail SMTP using an app password. Built on stdlib smtplib.
+
+    The app password is 16 alphanumeric chars with no real whitespace —
+    Google just displays it with spaces every 4 chars for readability. We
+    strip all whitespace (including non-breaking space \\xa0 that macOS
+    sometimes injects via copy-paste) so paste-as-shown works.
+    """
+    # Strip ALL unicode whitespace from credentials
+    user = re.sub(r"\s+", "", user or "").strip()
+    cleaned_pw = re.sub(r"\s+", "", app_password or "")
+    to = re.sub(r"\s+", "", to or "").strip()
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = user
@@ -71,7 +83,7 @@ def _send_email_gmail(
     try:
         # Gmail accepts SSL on 465; app password works in lieu of OAuth.
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
-            server.login(user, app_password)
+            server.login(user, cleaned_pw)
             server.send_message(msg)
         log.info("notify: email sent to %s", to)
         return True, None

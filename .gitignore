@@ -1,3 +1,11 @@
+# Env files anywhere — NEVER commit these
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+
 # Python
 **/venv/
 **/__pycache__/
@@ -9,21 +17,14 @@
 backend/*.db
 backend/uploads/*
 !backend/uploads/.gitkeep
-backend/.env
-backend/.env.local
 
 # Agent
-agent/.env
-agent/.env.local
 agent/*.db
 agent/agent_state.db
 
 # Node / Frontend
 frontend/node_modules/
 frontend/dist/
-frontend/.env
-frontend/.env.local
-frontend/.env.*.local
 frontend/.vite/
 
 # IDE / OS

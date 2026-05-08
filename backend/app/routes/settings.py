@@ -81,13 +81,45 @@ def test_alert(
     db: Session = Depends(get_db),
     _: User = Depends(require_owner),
 ):
-    body = payload.body or "ResellIQ test alert — your alert pipeline works."
-    result = notify.send_alert(
-        db,
-        body,
-        subject="ResellIQ test alert",
-        body_html=f"<p>{body}</p><p style='color:#888;font-size:12px'>If you're seeing this in your inbox, your Gmail SMTP setup is working.</p>",
-    )
+    """Fire a sample alert that uses the same template a real stock-landed
+    event would use. Lets the user preview how alerts will actually look in
+    their inbox / on their phone."""
+
+    # If the user passed a custom body, use it; otherwise build a realistic
+    # Pokemon-at-Target sample so they see the real alert layout.
+    if payload.body:
+        body = payload.body
+        body_html = f"<p>{body}</p>"
+        subject = "ResellIQ test alert"
+    else:
+        sample = dict(
+            retailer="target",
+            product_name="Pokemon 151 Booster Bundle",
+            stock_count=5,
+            store_name="Target Cypress",
+            store_address="25711 Hwy 290 W, Cypress, TX 77433",
+            distance_mi=4.2,
+        )
+        body = "[TEST] " + notify.format_alert(**sample)
+        body_html = notify.format_alert_html(**sample)
+        # Tag the HTML version too so it's clear this is a preview, not a
+        # real drop. Inject a small banner above the card.
+        body_html = body_html.replace(
+            '<div style="background: #0f1525;',
+            '<div style="background: #f59e0b; color: #1a0f00; padding: 8px 16px; '
+            'border-radius: 8px; margin-bottom: 12px; font-size: 12px; '
+            'font-weight: 600; text-align: center;">'
+            'TEST ALERT — preview of how real stock alerts will look'
+            '</div>'
+            '<div style="background: #0f1525;',
+            1,
+        )
+        subject = (
+            f"[TEST] {sample['store_name']} — {sample['stock_count']}x "
+            f"{sample['product_name']}"
+        )
+
+    result = notify.send_alert(db, body, subject=subject, body_html=body_html)
     if not result.ok:
         raise HTTPException(
             status_code=400, detail="; ".join(result.errors) or "send failed"

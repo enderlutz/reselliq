@@ -16,11 +16,19 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import Watch, WatchStore
+from ..models import User, Watch, WatchStore
+from ..services import settings_kv
 from ..services.agent_auth import require_agent_token
+from ..services.auth import require_owner
 from ..services.monitor_cycle import _apply_stock_update
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+
+def _record_heartbeat(db: Session) -> None:
+    """Update the agent's last-seen timestamp. Called on every authenticated
+    agent request so the dashboard can surface online/offline status."""
+    settings_kv.set(db, "agent_last_heartbeat_at", datetime.utcnow().isoformat())
 
 
 # ---------- Schemas (kept here since they're agent-internal) ----------
@@ -86,6 +94,7 @@ def watches_for_agent(
     """Return active watches in agent-handled retailers (anything NOT in
     settings.cloud_retailers). Includes the resolved stores so the agent
     doesn't need to re-resolve every cycle."""
+    _record_heartbeat(db)
     cloud = settings.cloud_retailers
     rows = (
         db.query(Watch)
@@ -125,6 +134,35 @@ def watches_for_agent(
     return AgentWatchesResponse(watches=out, monitor_enabled=enabled)
 
 
+class AgentStatus(BaseModel):
+    last_heartbeat_at: Optional[datetime] = None
+    state: str  # 'online' | 'stale' | 'offline' | 'never'
+    seconds_since: Optional[int] = None
+
+
+@router.get("/status", response_model=AgentStatus)
+def agent_status(
+    db: Session = Depends(get_db), _: User = Depends(require_owner)
+):
+    """Owner-facing endpoint: where is the agent and is it healthy?
+    online: last seen < 20 min, stale: 20–60 min, offline: > 60 min."""
+    raw = settings_kv.get(db, "agent_last_heartbeat_at")
+    if not raw:
+        return AgentStatus(last_heartbeat_at=None, state="never", seconds_since=None)
+    try:
+        ts = datetime.fromisoformat(raw)
+    except ValueError:
+        return AgentStatus(last_heartbeat_at=None, state="never", seconds_since=None)
+    seconds = int((datetime.utcnow() - ts).total_seconds())
+    if seconds < 20 * 60:
+        state = "online"
+    elif seconds < 60 * 60:
+        state = "stale"
+    else:
+        state = "offline"
+    return AgentStatus(last_heartbeat_at=ts, state=state, seconds_since=seconds)
+
+
 @router.post("/observations", response_model=AgentResultSummary)
 def post_observations(
     payload: AgentObservationsBatch,
@@ -134,6 +172,7 @@ def post_observations(
     """Apply a batch of agent observations: upsert WatchStore rows, then run
     the same diff-and-alert logic the cloud uses for Best Buy. Twilio SMS
     fires from the cloud (has the creds). Alert dedup still applies."""
+    _record_heartbeat(db)
     applied = 0
     new_stores = 0
     affected_watches: dict[int, Watch] = {}

@@ -23,6 +23,7 @@ KEYS = {
     "twilio_to_phone",         # the user's mobile number
     "monitor_enabled",         # "true" / "false" master switch
     "monitor_interval_min",    # int minutes between cycles, default 15
+    "agent_last_heartbeat_at", # ISO-8601 timestamp of last agent contact
 }
 
 

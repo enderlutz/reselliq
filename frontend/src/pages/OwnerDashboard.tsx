@@ -30,6 +30,7 @@ import type { OwnerDashboard as OwnerDashboardType } from "@/lib/types";
 import { StatCard } from "@/components/StatCard";
 import { PageHeader } from "@/components/PageHeader";
 import { ActionChip } from "@/components/ActionChip";
+import { AgentStatus } from "@/components/AgentStatus";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 export default function OwnerDashboard() {
@@ -86,6 +87,8 @@ export default function OwnerDashboard() {
           </div>
         }
       />
+
+      <AgentStatus />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard

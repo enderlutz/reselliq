@@ -160,11 +160,11 @@ export interface ParseLinkResponse {
   error?: string | null;
 }
 
-export type Retailer = "target" | "bestbuy" | "walmart" | "samsclub" | "gamestop";
+export type WatchRetailer = "target" | "bestbuy" | "walmart" | "samsclub" | "gamestop";
 
 export interface WatchStore {
   id: number;
-  retailer: Retailer;
+  retailer: WatchRetailer;
   store_id: string;
   store_name?: string | null;
   store_address?: string | null;
@@ -177,7 +177,7 @@ export interface WatchStore {
 export interface Watch {
   id: number;
   sku: string;
-  retailer: Retailer;
+  retailer: WatchRetailer;
   product_name: string;
   zip_code: string;
   radius_miles: number;
@@ -192,7 +192,7 @@ export interface Watch {
 export interface WatchAlert {
   id: number;
   watch_id: number;
-  retailer: Retailer;
+  retailer: WatchRetailer;
   store_id: string;
   store_name?: string | null;
   store_address?: string | null;

@@ -101,7 +101,7 @@ export default function InvestorDashboard() {
                       border: "1px solid hsl(var(--border))",
                       borderRadius: 8,
                     }}
-                    formatter={(v: number) => currency(v)}
+                    formatter={(v) => currency(typeof v === "number" ? v : 0)}
                   />
                   <Legend />
                   <Bar dataKey="capital_returned" stackId="a" fill="hsl(217 91% 60%)" name="Capital returned" />

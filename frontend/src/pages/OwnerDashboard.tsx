@@ -168,7 +168,7 @@ export default function OwnerDashboard() {
                       border: "1px solid hsl(var(--border))",
                       borderRadius: 8,
                     }}
-                    formatter={(v: number) => currency(v)}
+                    formatter={(v) => currency(typeof v === "number" ? v : 0)}
                   />
                   <Line
                     type="monotone"

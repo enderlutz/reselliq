@@ -9,9 +9,15 @@ export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
 // In prod: VITE_API_URL points at the Railway backend.
 //   Example: VITE_API_URL=https://reselliq.up.railway.app
 // In demo mode: every request is intercepted by mockAdapter — no backend.
-const API_BASE = import.meta.env.VITE_API_URL
-  ? `${(import.meta.env.VITE_API_URL as string).replace(/\/$/, "")}/api`
-  : "/api";
+function resolveApiBase(): string {
+  const raw = import.meta.env.VITE_API_URL as string | undefined;
+  if (!raw) return "/api";
+  let url = raw.trim().replace(/\/$/, "");
+  // Forgiving: if the user set the env var without a protocol, assume https
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  return `${url}/api`;
+}
+const API_BASE = resolveApiBase();
 
 export const api = axios.create({
   baseURL: API_BASE,

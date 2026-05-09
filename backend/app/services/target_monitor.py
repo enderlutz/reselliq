@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -25,9 +26,17 @@ from .proxy_pool import ProxyEntry, ProxyPool
 
 log = logging.getLogger(__name__)
 
-REDSKY = "https://redsky.target.com/redsky_aggregations/v1/web"
+# nearby_stores_v1 still lives under /web/. Fulfillment moved to
+# /web_platform/product_fulfillment_v1 in the v1->v2 deprecation cycle
+# (the old /web/pdp_fulfillment_v1 returns 410 Gone as of 2026).
+REDSKY_WEB = "https://redsky.target.com/redsky_aggregations/v1/web"
+REDSKY_PLATFORM = "https://redsky.target.com/redsky_aggregations/v1/web_platform"
 HOME = "https://www.target.com/"
 KEY_RE = re.compile(r'"apiKey":"([a-f0-9]{40})"')
+
+# Stable visitor_id per agent process — 32-char hex, not validated server-side
+# but missing it triggers a bot challenge.
+VISITOR_ID = secrets.token_hex(16)
 
 # Public web-bundle API keys that Target's own frontend uses. These are
 # documented widely in community projects and haven't rotated in years.
@@ -140,7 +149,7 @@ def search_nearby_stores(
     }
     try:
         r = ccffi.get(
-            f"{REDSKY}/nearby_stores_v1",
+            f"{REDSKY_WEB}/nearby_stores_v1",
             params=params,
             headers=DEFAULT_HEADERS,
             proxies=_proxies_for(proxy),
@@ -205,20 +214,28 @@ def fetch_fulfillment(
         "store_id": store_id,
         "pricing_store_id": store_id,
         "has_pricing_store_id": "true",
-        "has_store_positions_store_id": "true",
         "store_positions_store_id": store_id,
-        "zip": zip_code,
-        "state": state,
-        "latitude": lat,
-        "longitude": lon,
+        "has_store_positions_store_id": "true",
         "scheduled_delivery_store_id": store_id,
         "required_store_id": store_id,
+        "has_required_store_id": "true",
+        "zip": zip_code,
+        "state": state,
+        "latitude": str(lat),
+        "longitude": str(lon),
+        "channel": "WEB",
+        "visitor_id": VISITOR_ID,
+    }
+    headers = {
+        **DEFAULT_HEADERS,
+        # New endpoint also requires the api key as a header
+        "x-api-key": key,
     }
     try:
         r = ccffi.get(
-            f"{REDSKY}/pdp_fulfillment_v1",
+            f"{REDSKY_PLATFORM}/product_fulfillment_v1",
             params=params,
-            headers=DEFAULT_HEADERS,
+            headers=headers,
             proxies=_proxies_for(proxy),
             impersonate="chrome124",
             timeout=20,
@@ -238,24 +255,43 @@ def fetch_fulfillment(
 
     data = r.json() or {}
     try:
-        fulfill = (
-            data.get("data", {})
-            .get("product", {})
-            .get("fulfillment", {})
-        )
-        # in_store / store_options is the path with per-store stock
-        store_opts = (
-            fulfill.get("store_options", [])
-            or fulfill.get("scheduled_delivery", {}).get("availability_status")
-            or []
-        )
-        for opt in store_opts if isinstance(store_opts, list) else []:
-            if str(opt.get("location_id")) == str(store_id):
-                stock_loc = opt.get("location_available_to_promise_quantity") or 0
-                in_store = (opt.get("in_store_only", {}) or {}).get("availability_status") or ""
-                op = (opt.get("order_pickup", {}) or {}).get("availability_status") or ""
-                status = in_store or op or "UNKNOWN"
-                qty = int(stock_loc or 0)
+        # In the new endpoint, fulfillment lives at data.fulfillment (not
+        # data.product.fulfillment). store_options is keyed array per store.
+        fulfill = data.get("data", {}).get("fulfillment", {}) or {}
+        if data.get("fulfillment"):
+            fulfill = data["fulfillment"]
+
+        # Sold-out shortcut
+        if fulfill.get("sold_out") or fulfill.get("is_out_of_stock_in_all_store_locations"):
+            return TargetStock(
+                tcin=tcin,
+                store_id=str(store_id),
+                available=False,
+                quantity=0,
+                raw_status="OUT_OF_STOCK",
+            )
+
+        store_opts = fulfill.get("store_options") or []
+        if isinstance(store_opts, list):
+            for opt in store_opts:
+                if str(opt.get("location_id")) != str(store_id):
+                    continue
+                qty = int(opt.get("location_available_to_promise_quantity") or 0)
+                pickup_status = (
+                    (opt.get("order_pickup", {}) or {}).get("availability_status") or ""
+                )
+                in_store_status = (
+                    (opt.get("in_store_only", {}) or {}).get("availability_status") or ""
+                )
+                # Some responses also have an order_pickup quantity
+                pickup_qty = int(
+                    (opt.get("order_pickup", {}) or {}).get(
+                        "available_to_promise_quantity"
+                    )
+                    or 0
+                )
+                qty = max(qty, pickup_qty)
+                status = pickup_status or in_store_status or "UNKNOWN"
                 return TargetStock(
                     tcin=tcin,
                     store_id=str(store_id),
@@ -263,9 +299,10 @@ def fetch_fulfillment(
                     quantity=qty,
                     raw_status=status,
                 )
-        # Fallback: top-level scheduled_delivery / shipping availability
-        sched = fulfill.get("scheduled_delivery", {}) or {}
-        status = sched.get("availability_status") or "UNKNOWN"
+
+        # Fallback: top-level shipping availability
+        ship = fulfill.get("shipping_options", {}) or {}
+        status = ship.get("availability_status") or "UNKNOWN"
         return TargetStock(
             tcin=tcin,
             store_id=str(store_id),

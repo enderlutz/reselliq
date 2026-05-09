@@ -76,7 +76,7 @@ def _fetch_html(url: str, cookies: Optional[dict] = None, timeout: int = 25) -> 
             url,
             headers=DEFAULT_HEADERS,
             cookies=cookies or {},
-            impersonate="chrome131",
+            impersonate="chrome124",
             timeout=timeout,
         )
         if r.status_code != 200:

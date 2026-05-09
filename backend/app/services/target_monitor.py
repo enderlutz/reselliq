@@ -80,7 +80,7 @@ def refresh_api_key(db: Session, proxy: Optional[ProxyEntry] = None) -> Optional
             HOME,
             headers={**DEFAULT_HEADERS, "Accept": "text/html"},
             proxies=_proxies_for(proxy),
-            impersonate="chrome131",
+            impersonate="chrome124",
             timeout=20,
         )
         m = KEY_RE.search(r.text or "")
@@ -128,7 +128,7 @@ def search_nearby_stores(
             params=params,
             headers=DEFAULT_HEADERS,
             proxies=_proxies_for(proxy),
-            impersonate="chrome131",
+            impersonate="chrome124",
             timeout=20,
         )
         if r.status_code == 403 and proxy:
@@ -204,7 +204,7 @@ def fetch_fulfillment(
             params=params,
             headers=DEFAULT_HEADERS,
             proxies=_proxies_for(proxy),
-            impersonate="chrome131",
+            impersonate="chrome124",
             timeout=20,
         )
         if r.status_code == 403:

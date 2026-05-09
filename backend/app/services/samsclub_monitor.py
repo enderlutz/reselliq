@@ -82,7 +82,7 @@ def _request(url: str, cookie: str, params: Optional[dict] = None, timeout: int 
             url,
             params=params or {},
             headers={**HEADERS, "Cookie": cookie},
-            impersonate="chrome131",
+            impersonate="chrome124",
             timeout=timeout,
         )
     except Exception as exc:

@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
 DEFAULT_HEADERS = {
@@ -37,7 +37,7 @@ DEFAULT_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
-    "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"macOS"',
     "sec-fetch-dest": "document",
@@ -82,7 +82,16 @@ def _fetch_html(url: str, cookies: Optional[dict] = None, timeout: int = 25) -> 
         if r.status_code != 200:
             log.warning("walmart: %s -> HTTP %s", url, r.status_code)
             return None
-        return r.text
+        body = r.text or ""
+        # If response is suspiciously short or contains common Akamai
+        # challenge markers, log a hint
+        if len(body) < 5000 or "_abck" in body[:5000] or "blocked" in body[:1000].lower():
+            log.warning(
+                "walmart: response looks like Akamai challenge (len=%d, first200=%s)",
+                len(body),
+                body[:200].replace("\n", " "),
+            )
+        return body
     except Exception as exc:
         log.warning("walmart: fetch %s failed: %s", url, exc)
         return None

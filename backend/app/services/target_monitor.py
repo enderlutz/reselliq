@@ -29,17 +29,26 @@ REDSKY = "https://redsky.target.com/redsky_aggregations/v1/web"
 HOME = "https://www.target.com/"
 KEY_RE = re.compile(r'"apiKey":"([a-f0-9]{40})"')
 
+# Public web-bundle API keys that Target's own frontend uses. These are
+# documented widely in community projects and haven't rotated in years.
+# Used as fallback when the regex can't find the key on the home page
+# (e.g. when Target serves an Akamai challenge instead of the real HTML).
+KNOWN_PUBLIC_KEYS = [
+    "ff457966e64d5e877fdbad070f276d18ecec4a01",
+    "9f36aeafbe60771e321a7cc95a78140772ab3e96",
+]
+
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept": "application/json",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
     "Origin": "https://www.target.com",
     "Referer": "https://www.target.com/",
-    "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"macOS"',
     "sec-fetch-dest": "empty",
@@ -74,7 +83,11 @@ def _proxies_for(entry: Optional[ProxyEntry]) -> Optional[dict]:
 
 
 def refresh_api_key(db: Session, proxy: Optional[ProxyEntry] = None) -> Optional[str]:
-    """Scrape a fresh redsky API key from target.com and persist it."""
+    """Scrape a fresh redsky API key from target.com and persist it.
+
+    Falls back to a known public key if scraping is blocked or the regex
+    can't find it. The known keys are what Target's own web frontend uses
+    and haven't rotated in years."""
     try:
         r = ccffi.get(
             HOME,
@@ -84,16 +97,19 @@ def refresh_api_key(db: Session, proxy: Optional[ProxyEntry] = None) -> Optional
             timeout=20,
         )
         m = KEY_RE.search(r.text or "")
-        if not m:
-            log.warning("target: no apiKey found in JS bundle")
-            return None
-        key = m.group(1)
-        settings_kv.set(db, "target_api_key", key)
-        log.info("target: refreshed redsky api key")
-        return key
+        if m:
+            key = m.group(1)
+            settings_kv.set(db, "target_api_key", key)
+            log.info("target: refreshed redsky api key from JS bundle")
+            return key
+        log.info("target: no apiKey found in JS bundle, using known public key")
     except Exception as exc:
-        log.warning("target: key refresh failed: %s", exc)
-        return None
+        log.warning("target: key refresh failed (%s), using known public key", exc)
+
+    # Fallback: known public key
+    fallback = KNOWN_PUBLIC_KEYS[0]
+    settings_kv.set(db, "target_api_key", fallback)
+    return fallback
 
 
 def _ensure_key(db: Session, proxy: Optional[ProxyEntry]) -> Optional[str]:

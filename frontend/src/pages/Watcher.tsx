@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import {
   Plus,
@@ -11,11 +11,15 @@ import {
   Loader2,
   Store as StoreIcon,
   ChevronDown,
+  ChevronRight,
   Power,
+  Upload,
+  CircleDot,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Watch, AppSettings } from "@/lib/types";
+import type { Watch, AppSettings, WatchRetailer } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
+import { BulkAddWatchesDialog } from "@/components/BulkAddWatchesDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,15 +39,55 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 const empty = {
-  retailer: "target",
+  retailer: "target" as WatchRetailer,
   sku: "",
   product_name: "",
-  zip_code: "",
+  zip_code: "77433",
   radius_miles: "25",
   min_stock_threshold: "1",
 };
+
+// Retailer display order + visual config
+const RETAILERS: {
+  key: WatchRetailer;
+  label: string;
+  accent: string; // tailwind hsl()
+  description: string;
+}[] = [
+  {
+    key: "target",
+    label: "Target",
+    accent: "hsl(0 88% 62%)",
+    description: "TCINs · agent-side polling",
+  },
+  {
+    key: "walmart",
+    label: "Walmart",
+    accent: "hsl(45 100% 55%)",
+    description: "Item IDs · agent-side polling",
+  },
+  {
+    key: "gamestop",
+    label: "GameStop",
+    accent: "hsl(152 70% 50%)",
+    description: "8-digit PIDs · agent-side polling",
+  },
+  {
+    key: "samsclub",
+    label: "Sam's Club",
+    accent: "hsl(225 90% 60%)",
+    description: "Item IDs · cookie-auth · agent-side",
+  },
+  {
+    key: "bestbuy",
+    label: "Best Buy",
+    accent: "hsl(192 95% 56%)",
+    description: "SKUs · official API · cloud-side",
+  },
+];
 
 function fmtTime(s: string | null | undefined) {
   if (!s) return "never";
@@ -53,30 +97,6 @@ function fmtTime(s: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function retailerLabel(r: string): string {
-  return (
-    {
-      target: "Target",
-      bestbuy: "Best Buy",
-      walmart: "Walmart",
-      samsclub: "Sam's Club",
-      gamestop: "GameStop",
-    } as Record<string, string>
-  )[r] || r;
-}
-
-function retailerVariant(r: string): any {
-  return (
-    {
-      target: "destructive",
-      bestbuy: "info",
-      walmart: "warning",
-      samsclub: "default",
-      gamestop: "success",
-    } as Record<string, string>
-  )[r] || "secondary";
 }
 
 function skuPlaceholder(r: string): string {
@@ -95,9 +115,11 @@ export default function Watcher() {
   const [watches, setWatches] = useState<Watch[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [open, setOpen] = useState(false);
+  const [bulkOpenFor, setBulkOpenFor] = useState<WatchRetailer | null>(null);
   const [editing, setEditing] = useState<Watch | null>(null);
   const [form, setForm] = useState<typeof empty>(empty);
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [expandedWatches, setExpandedWatches] = useState<Set<number>>(new Set());
+  const [collapsedRetailers, setCollapsedRetailers] = useState<Set<string>>(new Set());
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
 
   const reload = () => {
@@ -110,9 +132,23 @@ export default function Watcher() {
 
   const masterOn = (settings?.monitor_enabled || "").toLowerCase() === "true";
 
-  function openCreate() {
+  const watchesByRetailer = useMemo(() => {
+    const grouped: Record<string, Watch[]> = {};
+    for (const r of RETAILERS) grouped[r.key] = [];
+    for (const w of watches) {
+      if (grouped[w.retailer]) grouped[w.retailer].push(w);
+    }
+    return grouped;
+  }, [watches]);
+
+  const inStockCount = useMemo(
+    () => watches.filter((w) => w.stores.some((s) => s.last_known_stock > 0)).length,
+    [watches]
+  );
+
+  function openCreate(retailer: WatchRetailer = "target") {
     setEditing(null);
-    setForm(empty);
+    setForm({ ...empty, retailer });
     setOpen(true);
   }
   function openEdit(w: Watch) {
@@ -173,11 +209,19 @@ export default function Watcher() {
       reload();
     }
   }
-  function toggleExpand(id: number) {
-    setExpanded((s) => {
+  function toggleWatchExpanded(id: number) {
+    setExpandedWatches((s) => {
       const next = new Set(s);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  }
+  function toggleRetailerCollapsed(key: string) {
+    setCollapsedRetailers((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -186,12 +230,10 @@ export default function Watcher() {
     <div className="animate-fade-in">
       <PageHeader
         title="Stock Watcher"
-        count={`${watches.length} watch${watches.length === 1 ? "" : "es"}`}
-        actions={
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            Add watch
-          </Button>
+        count={
+          watches.length === 0
+            ? "0 watches"
+            : `${watches.length} watch${watches.length === 1 ? "" : "es"} · ${inStockCount} in stock now`
         }
       />
 
@@ -220,7 +262,7 @@ export default function Watcher() {
             <p className="text-xs text-muted-foreground">
               {masterOn
                 ? `Polls every ${settings.monitor_interval_min || 15} min. Watches will be checked automatically.`
-                : "No requests will be made to Target or Best Buy. Turn it on in Settings when ready."}
+                : "No requests will be made. Turn it on in Settings when ready."}
             </p>
           </div>
           <RouterLink
@@ -232,159 +274,116 @@ export default function Watcher() {
         </div>
       )}
 
-      {watches.length === 0 ? (
-        <Card className="p-12 text-center text-muted-foreground">
-          No watches yet. Add a SKU + zip code, and ResellIQ will text you when stock lands at a nearby store.
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {watches.map((w) => {
-            const isExpanded = expanded.has(w.id);
-            const isBusy = busyIds.has(w.id);
-            const inStockStores = w.stores.filter((s) => s.last_known_stock > 0).length;
-            return (
-              <Card key={w.id} className="overflow-hidden">
-                <div
-                  className="flex items-center gap-4 p-4 cursor-pointer hover:bg-white/[0.02]"
-                  onClick={() => toggleExpand(w.id)}
+      {/* Per-retailer sections */}
+      <div className="space-y-4">
+        {RETAILERS.map((r) => {
+          const list = watchesByRetailer[r.key] || [];
+          const inStock = list.filter((w) =>
+            w.stores.some((s) => s.last_known_stock > 0)
+          ).length;
+          const collapsed = collapsedRetailers.has(r.key);
+          return (
+            <Card key={r.key} className="overflow-hidden">
+              {/* Section header */}
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5">
+                <button
+                  onClick={() => toggleRetailerCollapsed(r.key)}
+                  className="text-muted-foreground hover:text-foreground"
                 >
                   <ChevronDown
-                    className={`h-4 w-4 text-muted-foreground transition-transform ${
-                      isExpanded ? "rotate-0" : "-rotate-90"
-                    }`}
+                    className={cn(
+                      "h-4 w-4 transition-transform",
+                      collapsed && "-rotate-90"
+                    )}
                   />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold truncate">{w.product_name}</h3>
-                      <Badge variant={retailerVariant(w.retailer)}>
-                        {retailerLabel(w.retailer)}
+                </button>
+                <div
+                  className="h-2.5 w-2.5 rounded-full shrink-0"
+                  style={{ background: r.accent }}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold tracking-tight">{r.label}</h2>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {list.length} watch{list.length === 1 ? "" : "es"}
+                    </Badge>
+                    {inStock > 0 && (
+                      <Badge
+                        variant="success"
+                        className="text-[10px] flex items-center gap-1"
+                      >
+                        <CircleDot className="h-2.5 w-2.5 animate-pulse" />
+                        {inStock} IN STOCK NOW
                       </Badge>
-                      {w.status === "paused" && <Badge variant="secondary">paused</Badge>}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 tabular">
-                      SKU {w.sku} · {w.zip_code} · {w.radius_miles}mi · alert ≥ {w.min_stock_threshold}
-                    </p>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground hidden sm:block">
-                    <p>
-                      {inStockStores}/{w.stores.length} in stock
-                    </p>
-                    <p>last check {fmtTime(w.last_check_at)}</p>
-                  </div>
-                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      title="Check now"
-                      onClick={() => checkNow(w)}
-                      disabled={isBusy}
-                    >
-                      {isBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      title={w.status === "active" ? "Pause" : "Resume"}
-                      onClick={() => toggle(w)}
-                    >
-                      {w.status === "active" ? (
-                        <Pause className="h-4 w-4" />
-                      ) : (
-                        <Play className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(w)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="text-destructive"
-                      onClick={() => remove(w)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                {w.last_check_error && (
-                  <div className="mx-4 mb-3 px-3 py-2 rounded-md text-xs bg-destructive/10 border border-destructive/20 text-destructive flex items-start gap-2">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    <span>{w.last_check_error}</span>
-                  </div>
-                )}
-
-                {isExpanded && (
-                  <div className="border-t border-white/5">
-                    {w.stores.length === 0 ? (
-                      <div className="p-6 text-center text-sm text-muted-foreground">
-                        Stores not yet resolved. Click "Check now" to populate (requires{" "}
-                        {w.retailer === "target" ? "Webshare proxies" : "Best Buy API key"} or it'll skip).
-                      </div>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead className="table-head">
-                          <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground/90">
-                            <th className="py-2 px-4">Store</th>
-                            <th className="py-2 px-4">Address</th>
-                            <th className="py-2 px-4 text-right">Distance</th>
-                            <th className="py-2 px-4 text-right">Stock</th>
-                            <th className="py-2 px-4 text-right">Last in stock</th>
-                            <th className="py-2 px-4 text-right">Last check</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {w.stores.map((s) => {
-                            const inStock = s.last_known_stock > 0;
-                            return (
-                              <tr key={s.id} className="border-t border-border/40">
-                                <td className="py-2 px-4">
-                                  <div className="flex items-center gap-2">
-                                    <StoreIcon
-                                      className={`h-3.5 w-3.5 ${
-                                        inStock ? "text-[hsl(var(--chip-emerald))]" : "text-muted-foreground"
-                                      }`}
-                                    />
-                                    <span className="font-medium">{s.store_name || `#${s.store_id}`}</span>
-                                  </div>
-                                </td>
-                                <td className="py-2 px-4 text-xs text-muted-foreground">
-                                  {s.store_address || "—"}
-                                </td>
-                                <td className="py-2 px-4 text-right tabular text-xs">
-                                  {s.distance_mi != null ? `${s.distance_mi.toFixed(1)} mi` : "—"}
-                                </td>
-                                <td className="py-2 px-4 text-right">
-                                  {inStock ? (
-                                    <Badge variant="success">{s.last_known_stock}x</Badge>
-                                  ) : (
-                                    <span className="text-muted-foreground text-xs">0</span>
-                                  )}
-                                </td>
-                                <td className="py-2 px-4 text-right tabular text-xs text-muted-foreground">
-                                  {fmtTime(s.last_seen_in_stock_at)}
-                                </td>
-                                <td className="py-2 px-4 text-right tabular text-xs text-muted-foreground">
-                                  {fmtTime(s.last_checked_at)}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
                     )}
                   </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                  <p className="text-[11px] text-muted-foreground">{r.description}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setBulkOpenFor(r.key)}
+                  title={`Bulk add to ${r.label}`}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Bulk
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => openCreate(r.key)}
+                  title={`Add a single watch to ${r.label}`}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add
+                </Button>
+              </div>
 
+              {/* Section body */}
+              {!collapsed && (
+                <div>
+                  {list.length === 0 ? (
+                    <div className="px-6 py-8 text-center text-xs text-muted-foreground">
+                      No watches for {r.label} yet. Use{" "}
+                      <button
+                        onClick={() => setBulkOpenFor(r.key)}
+                        className="text-[hsl(var(--chip-cyan))] hover:underline"
+                      >
+                        Bulk
+                      </button>{" "}
+                      to paste a list, or{" "}
+                      <button
+                        onClick={() => openCreate(r.key)}
+                        className="text-[hsl(var(--chip-cyan))] hover:underline"
+                      >
+                        Add
+                      </button>{" "}
+                      one at a time.
+                    </div>
+                  ) : (
+                    <div>
+                      {list.map((w) => (
+                        <WatchRow
+                          key={w.id}
+                          watch={w}
+                          expanded={expandedWatches.has(w.id)}
+                          busy={busyIds.has(w.id)}
+                          onToggleExpanded={() => toggleWatchExpanded(w.id)}
+                          onCheckNow={() => checkNow(w)}
+                          onTogglePause={() => toggle(w)}
+                          onEdit={() => openEdit(w)}
+                          onDelete={() => remove(w)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Single add/edit dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
@@ -395,22 +394,22 @@ export default function Watcher() {
               <Label>Retailer</Label>
               <Select
                 value={form.retailer}
-                onValueChange={(v) => setForm({ ...form, retailer: v })}
+                onValueChange={(v) => setForm({ ...form, retailer: v as WatchRetailer })}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="target">Target</SelectItem>
-                  <SelectItem value="bestbuy">Best Buy</SelectItem>
-                  <SelectItem value="walmart">Walmart</SelectItem>
-                  <SelectItem value="samsclub">Sam's Club</SelectItem>
-                  <SelectItem value="gamestop">GameStop</SelectItem>
+                  {RETAILERS.map((r) => (
+                    <SelectItem key={r.key} value={r.key}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>SKU / TCIN</Label>
+              <Label>SKU / TCIN / PID</Label>
               <Input
                 value={form.sku}
                 placeholder={skuPlaceholder(form.retailer)}
@@ -461,6 +460,191 @@ export default function Watcher() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk add dialog */}
+      {bulkOpenFor && (
+        <BulkAddWatchesDialog
+          retailer={bulkOpenFor}
+          onClose={() => setBulkOpenFor(null)}
+          onSaved={reload}
+        />
+      )}
+    </div>
+  );
+}
+
+function WatchRow({
+  watch,
+  expanded,
+  busy,
+  onToggleExpanded,
+  onCheckNow,
+  onTogglePause,
+  onEdit,
+  onDelete,
+}: {
+  watch: Watch;
+  expanded: boolean;
+  busy: boolean;
+  onToggleExpanded: () => void;
+  onCheckNow: () => void;
+  onTogglePause: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const inStockStores = watch.stores.filter((s) => s.last_known_stock > 0);
+  const isInStock = inStockStores.length > 0;
+  const totalStock = inStockStores.reduce((sum, s) => sum + s.last_known_stock, 0);
+
+  return (
+    <div
+      className={cn(
+        "border-t border-white/5",
+        isInStock && "bg-[hsl(var(--chip-emerald)/0.04)]"
+      )}
+    >
+      <div
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-white/[0.02]"
+        onClick={onToggleExpanded}
+      >
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0",
+            expanded && "rotate-90"
+          )}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-semibold text-sm truncate">{watch.product_name}</h3>
+            {isInStock && (
+              <Badge
+                variant="success"
+                className="text-[10px] flex items-center gap-1 shrink-0"
+              >
+                <CircleDot className="h-2.5 w-2.5 animate-pulse" />
+                IN STOCK · {totalStock}
+              </Badge>
+            )}
+            {watch.status === "paused" && (
+              <Badge variant="secondary" className="text-[10px]">
+                paused
+              </Badge>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5 tabular">
+            SKU {watch.sku} · {watch.zip_code} · {watch.radius_miles}mi · alert ≥{" "}
+            {watch.min_stock_threshold}
+          </p>
+        </div>
+        <div className="text-right text-[11px] text-muted-foreground hidden sm:block">
+          <p>
+            {inStockStores.length}/{watch.stores.length} in stock
+          </p>
+          <p>last check {fmtTime(watch.last_check_at)}</p>
+        </div>
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <Button
+            size="icon"
+            variant="ghost"
+            title="Check now"
+            onClick={onCheckNow}
+            disabled={busy}
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            title={watch.status === "active" ? "Pause" : "Resume"}
+            onClick={onTogglePause}
+          >
+            {watch.status === "active" ? (
+              <Pause className="h-3.5 w-3.5" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
+          </Button>
+          <Button size="icon" variant="ghost" onClick={onEdit}>
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="text-destructive"
+            onClick={onDelete}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {watch.last_check_error && (
+        <div className="mx-4 mb-2 px-3 py-2 rounded-md text-xs bg-destructive/10 border border-destructive/20 text-destructive flex items-start gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>{watch.last_check_error}</span>
+        </div>
+      )}
+
+      {expanded && (
+        <div className="border-t border-white/5">
+          {watch.stores.length === 0 ? (
+            <div className="p-6 text-center text-xs text-muted-foreground">
+              Stores not yet resolved. Click "Check now" (master switch must be ON) to populate.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="table-head">
+                <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground/90">
+                  <th className="py-2 px-4">Store</th>
+                  <th className="py-2 px-4">Address</th>
+                  <th className="py-2 px-4 text-right">Distance</th>
+                  <th className="py-2 px-4 text-right">Stock</th>
+                  <th className="py-2 px-4 text-right">Last in stock</th>
+                  <th className="py-2 px-4 text-right">Last check</th>
+                </tr>
+              </thead>
+              <tbody>
+                {watch.stores.map((s) => {
+                  const inStock = s.last_known_stock > 0;
+                  return (
+                    <tr key={s.id} className="border-t border-border/40">
+                      <td className="py-2 px-4">
+                        <div className="flex items-center gap-2">
+                          <StoreIcon
+                            className={`h-3.5 w-3.5 ${
+                              inStock ? "text-[hsl(var(--chip-emerald))]" : "text-muted-foreground"
+                            }`}
+                          />
+                          <span className="font-medium">{s.store_name || `#${s.store_id}`}</span>
+                        </div>
+                      </td>
+                      <td className="py-2 px-4 text-xs text-muted-foreground">
+                        {s.store_address || "—"}
+                      </td>
+                      <td className="py-2 px-4 text-right tabular text-xs">
+                        {s.distance_mi != null ? `${s.distance_mi.toFixed(1)} mi` : "—"}
+                      </td>
+                      <td className="py-2 px-4 text-right">
+                        {inStock ? (
+                          <Badge variant="success">{s.last_known_stock}x</Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">0</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-4 text-right tabular text-xs text-muted-foreground">
+                        {fmtTime(s.last_seen_in_stock_at)}
+                      </td>
+                      <td className="py-2 px-4 text-right tabular text-xs text-muted-foreground">
+                        {fmtTime(s.last_checked_at)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }

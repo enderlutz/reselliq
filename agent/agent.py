@@ -17,6 +17,7 @@ import os
 import random
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 # Make backend code importable so we can reuse the monitor modules
@@ -60,6 +61,9 @@ API_URL = os.environ.get("RESELLIQ_API_URL", "").rstrip("/")
 AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "")
 INTERVAL_MIN = int(os.environ.get("AGENT_INTERVAL_MIN", "15"))
 SAMS_COOKIE = os.environ.get("SAMSCLUB_COOKIE", "")
+# Cap on the number of nearby stores resolved per watch. Default 10. Bump to
+# 15 if you want broader coverage (more requests per cycle though).
+STORES_PER_WATCH = int(os.environ.get("AGENT_STORES_PER_WATCH", "10"))
 
 if not API_URL or not AGENT_TOKEN:
     log.error("RESELLIQ_API_URL and AGENT_TOKEN must be set")
@@ -113,7 +117,7 @@ def process_target(w: dict) -> list[dict]:
         if not stores:
             log.info("[target] resolving stores for watch %d (%s)", w["id"], w["zip_code"])
             ts = target_monitor.search_nearby_stores(
-                db, w["zip_code"], w["radius_miles"], limit=10, pool=ProxyPool()
+                db, w["zip_code"], w["radius_miles"], limit=STORES_PER_WATCH, pool=ProxyPool()
             )
             for s in ts:
                 obs.append(
@@ -158,7 +162,7 @@ def process_walmart(w: dict) -> list[dict]:
     if not stores:
         log.info("[walmart] resolving stores for watch %d", w["id"])
         ws = walmart_monitor.search_nearby_stores(
-            w["zip_code"], w["radius_miles"], limit=10
+            w["zip_code"], w["radius_miles"], limit=STORES_PER_WATCH
         )
         for s in ws:
             obs.append(
@@ -190,7 +194,7 @@ def process_walmart(w: dict) -> list[dict]:
 def process_gamestop(w: dict) -> list[dict]:
     obs: list[dict] = []
     results = gamestop_monitor.search_with_inventory(
-        w["sku"], w["zip_code"], w["radius_miles"], limit=10
+        w["sku"], w["zip_code"], w["radius_miles"], limit=STORES_PER_WATCH
     )
     time.sleep(random.uniform(3.0, 6.0))
     for store, stock in results:
@@ -221,7 +225,7 @@ def process_samsclub(w: dict) -> list[dict]:
     if not stores:
         log.info("[samsclub] resolving clubs for watch %d", w["id"])
         ss = samsclub_monitor.search_nearby_clubs(
-            SAMS_COOKIE, w["zip_code"], w["radius_miles"], limit=10
+            SAMS_COOKIE, w["zip_code"], w["radius_miles"], limit=STORES_PER_WATCH
         )
         for s in ss:
             obs.append(
@@ -262,6 +266,27 @@ PROCESSORS = {
 }
 
 
+def _process_retailer_thread(retailer: str, watches: list[dict]) -> list[dict]:
+    """Run one retailer's watches sequentially in its own thread. Each thread
+    talks to a different domain so rate limits are independent. Within a
+    retailer we still iterate serially with jittered sleeps to stay below
+    that retailer's per-IP threshold."""
+    proc = PROCESSORS.get(retailer)
+    if proc is None:
+        return []
+    log.info("[%s] start · %d watches", retailer, len(watches))
+    obs: list[dict] = []
+    for w in watches:
+        try:
+            log.info("[%s] watch %d (%s)", retailer, w["id"], w["product_name"])
+            obs.extend(proc(w))
+        except Exception as exc:
+            log.exception("watch %d (%s) failed: %s", w["id"], retailer, exc)
+            _report_error(w["id"], f"{type(exc).__name__}: {str(exc)[:200]}")
+    log.info("[%s] done · %d observations", retailer, len(obs))
+    return obs
+
+
 def cycle() -> None:
     log.info("=== cycle start ===")
     try:
@@ -279,23 +304,39 @@ def cycle() -> None:
     watches = payload.get("watches", [])
     log.info("got %d active watches", len(watches))
 
-    all_obs: list[dict] = []
+    # Group watches by retailer so each retailer runs in its own thread.
+    # Different domains = independent rate limits = safe to parallelize.
+    by_retailer: dict[str, list[dict]] = {}
     for w in watches:
-        retailer = w["retailer"]
-        proc = PROCESSORS.get(retailer)
-        if proc is None:
-            log.debug("no processor for retailer %s", retailer)
-            continue
-        try:
-            log.info("[%s] watch %d (%s)", retailer, w["id"], w["product_name"])
-            obs = proc(w)
-            all_obs.extend(obs)
-        except Exception as exc:
-            log.exception("watch %d (%s) failed: %s", w["id"], retailer, exc)
-            _report_error(w["id"], f"{type(exc).__name__}: {str(exc)[:200]}")
+        by_retailer.setdefault(w["retailer"], []).append(w)
+
+    if not by_retailer:
+        _post_batch([])
+        log.info("=== cycle done (no watches) ===")
+        return
+
+    cycle_start = time.time()
+    all_obs: list[dict] = []
+
+    # max_workers = number of distinct retailers, never more than 6
+    with ThreadPoolExecutor(max_workers=min(len(by_retailer), 6)) as pool:
+        futures = {
+            pool.submit(_process_retailer_thread, r, ws): r
+            for r, ws in by_retailer.items()
+        }
+        for fut in as_completed(futures):
+            try:
+                all_obs.extend(fut.result())
+            except Exception as exc:
+                log.exception("retailer thread crashed: %s", exc)
 
     _post_batch(all_obs)
-    log.info("=== cycle done ===")
+    log.info(
+        "=== cycle done · %.1fs · %d obs across %d retailers ===",
+        time.time() - cycle_start,
+        len(all_obs),
+        len(by_retailer),
+    )
 
 
 def main() -> None:

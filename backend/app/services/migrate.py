@@ -51,6 +51,35 @@ def _drop_unique_index_on(conn, table: str, column: str) -> None:
             log.info("migrate: dropped unique index %s", idx["name"])
 
 
+def _drop_unique_on_pg(conn, table: str, column: str) -> None:
+    """Postgres: drop any UNIQUE constraint that covers exactly [column].
+
+    Indexes backing UNIQUE constraints can't be dropped with DROP INDEX —
+    you have to drop the constraint, which removes the index too.
+    """
+    rows = conn.execute(
+        text("""
+            SELECT con.conname
+            FROM pg_constraint con
+            JOIN pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+            WHERE rel.relname = :table
+              AND con.contype = 'u'
+              AND nsp.nspname = ANY (current_schemas(false))
+              AND (
+                SELECT array_agg(att.attname ORDER BY att.attnum)
+                FROM unnest(con.conkey) AS k(attnum)
+                JOIN pg_attribute att
+                  ON att.attrelid = con.conrelid AND att.attnum = k.attnum
+              ) = ARRAY[:column]::name[]
+        """),
+        {"table": table, "column": column},
+    ).fetchall()
+    for (conname,) in rows:
+        conn.execute(text(f'ALTER TABLE {table} DROP CONSTRAINT IF EXISTS "{conname}"'))
+        log.info("migrate: dropped unique constraint %s on %s.%s", conname, table, column)
+
+
 def _rebuild_sales_without_unique_item_id(conn) -> None:
     """SQLite cannot drop an autoindex unique constraint without rebuilding.
 
@@ -137,12 +166,9 @@ def run_migrations() -> None:
             _drop_unique_index_on(conn, "sales", "item_id")
             _rebuild_sales_without_unique_item_id(conn)
         else:
-            # Postgres / MySQL: drop unique constraint by introspected index name.
-            for idx in _indexes(conn, "sales"):
-                if idx.get("unique") and idx.get("column_names") == ["item_id"]:
-                    conn.execute(text(f'DROP INDEX IF EXISTS {idx["name"]}'))
+            _drop_unique_on_pg(conn, "sales", "item_id")
 
         # 5. Ensure a non-unique index on sales.item_id exists.
         existing = {i["name"] for i in _indexes(conn, "sales")}
         if "ix_sales_item_id" not in existing:
-            conn.execute(text("CREATE INDEX ix_sales_item_id ON sales(item_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_item_id ON sales(item_id)"))

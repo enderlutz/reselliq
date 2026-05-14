@@ -73,6 +73,11 @@ class InventoryItem(Base):
     sales_tax_paid = Column(Float, default=0.0)  # per-unit
     quantity = Column(Integer, nullable=False, default=1)
     quantity_remaining = Column(Integer, nullable=False, default=1)
+    # How many of the total units were funded by `funded_by_investor_id`.
+    # Owner-funded count is implied: quantity - investor_funded_quantity.
+    # Defaults to 0; backfilled to `quantity` for legacy investor-funded rows.
+    investor_funded_quantity = Column(Integer, nullable=False, default=0)
+    investor_funded_quantity_remaining = Column(Integer, nullable=False, default=0)
     purchase_date = Column(Date, default=lambda: datetime.utcnow().date())
     condition = Column(String, default="new")  # new | open_box | used | damaged
     location_bin = Column(String)
@@ -109,6 +114,17 @@ class InventoryItem(Base):
     def cost_basis_remaining(self) -> float:
         return self.unit_cost * (self.quantity_remaining or 0)
 
+    @property
+    def owner_funded_quantity(self) -> int:
+        return max((self.quantity or 0) - (self.investor_funded_quantity or 0), 0)
+
+    @property
+    def owner_funded_quantity_remaining(self) -> int:
+        return max(
+            (self.quantity_remaining or 0) - (self.investor_funded_quantity_remaining or 0),
+            0,
+        )
+
 
 class Sale(Base):
     __tablename__ = "sales"
@@ -116,6 +132,9 @@ class Sale(Base):
     id = Column(Integer, primary_key=True)
     item_id = Column(Integer, ForeignKey("inventory_items.id"), nullable=False, index=True)
     quantity_sold = Column(Integer, nullable=False, default=1)
+    # Of `quantity_sold`, how many units came from the investor-funded pool.
+    # The remainder are owner-funded — they pay no investor profit share.
+    investor_funded_units = Column(Integer, nullable=False, default=0)
     sale_price = Column(Float, nullable=False)  # total for the lot (quantity_sold units)
     platform = Column(String)
     fees = Column(Float, default=0.0)

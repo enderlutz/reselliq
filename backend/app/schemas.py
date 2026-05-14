@@ -95,6 +95,7 @@ class InventoryItemBase(BaseModel):
     retail_cost: float = 0.0  # per-unit, pre-tax
     sales_tax_paid: float = 0.0  # per-unit
     quantity: int = 1
+    investor_funded_quantity: int = 0  # of `quantity`, how many investor-funded
     purchase_date: Optional[date] = None
     condition: str = "new"
     location_bin: Optional[str] = None
@@ -120,6 +121,8 @@ class InventoryItemUpdate(BaseModel):
     sales_tax_paid: Optional[float] = None
     quantity: Optional[int] = None
     quantity_remaining: Optional[int] = None
+    investor_funded_quantity: Optional[int] = None
+    investor_funded_quantity_remaining: Optional[int] = None
     purchase_date: Optional[date] = None
     condition: Optional[str] = None
     location_bin: Optional[str] = None
@@ -135,6 +138,9 @@ class InventoryItemUpdate(BaseModel):
 class InventoryItemOut(InventoryItemBase):
     id: int
     quantity_remaining: int
+    investor_funded_quantity_remaining: int
+    owner_funded_quantity: int
+    owner_funded_quantity_remaining: int
     unit_cost: float
     total_cost: float  # unit_cost * quantity (total capital deployed)
     cost_basis_remaining: float
@@ -152,6 +158,7 @@ class InventoryItemOut(InventoryItemBase):
 class SaleBase(BaseModel):
     item_id: int
     quantity_sold: int = 1
+    investor_funded_units: int = 0  # of quantity_sold, how many were investor's
     sale_price: float  # total for the lot
     platform: Optional[str] = None
     fees: float = 0.0
@@ -167,6 +174,7 @@ class SaleCreate(SaleBase):
 
 class SaleUpdate(BaseModel):
     quantity_sold: Optional[int] = None
+    investor_funded_units: Optional[int] = None
     sale_price: Optional[float] = None
     platform: Optional[str] = None
     fees: Optional[float] = None
@@ -187,6 +195,7 @@ class SaleSplit(BaseModel):
     investor_capital_returned: float
     investor_profit_share: float
     investor_payout_total: float
+    owner_capital_returned: float = 0.0
     owner_payout_total: float
 
 
@@ -209,6 +218,7 @@ class FeeCalcRequest(BaseModel):
     retail_cost: float  # per-unit, pre-tax
     sales_tax_paid: float = 0.0  # per-unit
     quantity_sold: int = 1
+    investor_funded_units: int = 0
     fees: float = 0.0
     shipping_out: float = 0.0
     sales_tax_collected: float = 0.0

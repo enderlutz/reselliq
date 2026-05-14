@@ -80,17 +80,29 @@ def _drop_unique_on_pg(conn, table: str, column: str) -> None:
         log.info("migrate: dropped unique constraint %s on %s.%s", conname, table, column)
 
 
+def _sqlite_has_unique_on(conn, table: str, column: str) -> bool:
+    """SQLAlchemy's inspector hides sqlite_autoindex_* entries, so query
+    PRAGMA directly to detect a table-level UNIQUE constraint on a column."""
+    idx_rows = conn.execute(text(f"PRAGMA index_list({table})")).fetchall()
+    for row in idx_rows:
+        # row schema: (seq, name, unique, origin, partial)
+        name = row[1]
+        unique = bool(row[2])
+        if not unique:
+            continue
+        cols = conn.execute(text(f"PRAGMA index_info({name})")).fetchall()
+        # cols: (seqno, cid, name)
+        if len(cols) == 1 and cols[0][2] == column:
+            return True
+    return False
+
+
 def _rebuild_sales_without_unique_item_id(conn) -> None:
     """SQLite cannot drop an autoindex unique constraint without rebuilding.
 
-    If sales.item_id still has a UNIQUE autoindex, rebuild the table.
+    If sales.item_id still has a UNIQUE constraint, rebuild the table.
     """
-    idxs = _indexes(conn, "sales")
-    has_unique_autoidx = any(
-        i.get("unique") and i.get("column_names") == ["item_id"] and i["name"].startswith("sqlite_autoindex")
-        for i in idxs
-    )
-    if not has_unique_autoidx:
+    if not _sqlite_has_unique_on(conn, "sales", "item_id"):
         return
 
     log.info("migrate: rebuilding sales table to drop UNIQUE on item_id")
@@ -172,3 +184,50 @@ def run_migrations() -> None:
         existing = {i["name"] for i in _indexes(conn, "sales")}
         if "ix_sales_item_id" not in existing:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sales_item_id ON sales(item_id)"))
+
+        # 6. Funding-split columns on inventory_items.
+        _add_column(conn, "inventory_items", "investor_funded_quantity",
+                    "INTEGER NOT NULL DEFAULT 0")
+        _add_column(conn, "inventory_items", "investor_funded_quantity_remaining",
+                    "INTEGER NOT NULL DEFAULT 0")
+        # Backfill: any item that has funded_by_investor_id set is, under the
+        # legacy model, 100% investor-funded. Mirror quantity into the new cols.
+        conn.execute(text("""
+            UPDATE inventory_items
+            SET investor_funded_quantity = COALESCE(quantity, 1)
+            WHERE funded_by_investor_id IS NOT NULL
+              AND investor_funded_quantity = 0
+        """))
+        conn.execute(text("""
+            UPDATE inventory_items
+            SET investor_funded_quantity_remaining = LEAST(
+                COALESCE(investor_funded_quantity, 0),
+                COALESCE(quantity_remaining, 0)
+            )
+            WHERE funded_by_investor_id IS NOT NULL
+              AND investor_funded_quantity_remaining = 0
+              AND investor_funded_quantity > 0
+        """) if not is_sqlite else text("""
+            UPDATE inventory_items
+            SET investor_funded_quantity_remaining = MIN(
+                COALESCE(investor_funded_quantity, 0),
+                COALESCE(quantity_remaining, 0)
+            )
+            WHERE funded_by_investor_id IS NOT NULL
+              AND investor_funded_quantity_remaining = 0
+              AND investor_funded_quantity > 0
+        """))
+
+        # 7. Funding-split column on sales — every existing sale predates this
+        #    feature, so attribute all sold units to the investor pool when the
+        #    item had an investor attached.
+        _add_column(conn, "sales", "investor_funded_units",
+                    "INTEGER NOT NULL DEFAULT 0")
+        conn.execute(text("""
+            UPDATE sales
+            SET investor_funded_units = COALESCE(quantity_sold, 1)
+            WHERE investor_funded_units = 0
+              AND item_id IN (
+                  SELECT id FROM inventory_items WHERE funded_by_investor_id IS NOT NULL
+              )
+        """))

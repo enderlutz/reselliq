@@ -28,6 +28,10 @@ export interface InventoryItem {
   sales_tax_paid: number; // per-unit
   quantity: number;
   quantity_remaining: number;
+  investor_funded_quantity: number;
+  investor_funded_quantity_remaining: number;
+  owner_funded_quantity: number;
+  owner_funded_quantity_remaining: number;
   unit_cost: number;
   total_cost: number; // unit_cost * quantity
   cost_basis_remaining: number;
@@ -56,6 +60,7 @@ export interface SaleSplit {
   investor_capital_returned: number;
   investor_profit_share: number;
   investor_payout_total: number;
+  owner_capital_returned: number;
   owner_payout_total: number;
 }
 
@@ -63,6 +68,7 @@ export interface Sale {
   id: number;
   item_id: number;
   quantity_sold: number;
+  investor_funded_units: number;
   sale_price: number; // total for the lot
   platform?: string | null;
   fees: number;

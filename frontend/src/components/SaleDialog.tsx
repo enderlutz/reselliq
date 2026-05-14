@@ -25,12 +25,22 @@ type PriceMode = "each" | "total";
 
 export function SaleDialog({ item, onClose, onSaved }: Props) {
   const remaining = item.quantity_remaining ?? 1;
+  const invRemaining = item.investor_funded_quantity_remaining ?? 0;
+  const ownRemaining = item.owner_funded_quantity_remaining ?? remaining;
+  const hasMixedPool = invRemaining > 0 && ownRemaining > 0;
 
   const [quantitySold, setQuantitySold] = useState<string>(String(remaining));
   const [priceMode, setPriceMode] = useState<PriceMode>(remaining > 1 ? "total" : "each");
   const [priceInput, setPriceInput] = useState(
     item.target_sell_price != null ? String(item.target_sell_price) : ""
   );
+  // Initial investor units suggestion: proportional rounding of the pool.
+  const [investorUnits, setInvestorUnits] = useState<string>(() => {
+    if (invRemaining <= 0) return "0";
+    if (ownRemaining <= 0) return String(remaining);
+    const proportional = Math.round((invRemaining / remaining) * remaining);
+    return String(Math.min(proportional, invRemaining));
+  });
   const [platform, setPlatform] = useState("");
   const [fees, setFees] = useState("");
   const [shipping, setShipping] = useState("");
@@ -44,7 +54,13 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
     return Math.max(1, Math.min(n, remaining));
   }, [quantitySold, remaining]);
 
-  // Always send sale_price as TOTAL to the backend.
+  // Clamp investorUnits whenever qty changes.
+  const invUnits = useMemo(() => {
+    const n = Math.floor(Number(investorUnits) || 0);
+    return Math.max(0, Math.min(n, qty, invRemaining));
+  }, [investorUnits, qty, invRemaining]);
+  const ownUnits = qty - invUnits;
+
   const totalSalePrice = useMemo(() => {
     const p = Number(priceInput) || 0;
     return priceMode === "each" ? p * qty : p;
@@ -55,7 +71,12 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
     [totalSalePrice, qty]
   );
 
-  const pricesValid = totalSalePrice > 0 && qty >= 1 && qty <= remaining;
+  const pricesValid =
+    totalSalePrice > 0 &&
+    qty >= 1 &&
+    qty <= remaining &&
+    invUnits <= invRemaining &&
+    ownUnits <= ownRemaining;
 
   useEffect(() => {
     if (!pricesValid) {
@@ -69,6 +90,7 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
           retail_cost: item.retail_cost,
           sales_tax_paid: item.sales_tax_paid,
           quantity_sold: qty,
+          investor_funded_units: invUnits,
           fees: Number(fees) || 0,
           shipping_out: Number(shipping) || 0,
           sales_tax_collected: Number(salesTaxCollected) || 0,
@@ -78,12 +100,13 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
       } catch {}
     }, 200);
     return () => clearTimeout(t);
-  }, [totalSalePrice, qty, fees, shipping, salesTaxCollected, item, pricesValid]);
+  }, [totalSalePrice, qty, invUnits, fees, shipping, salesTaxCollected, item, pricesValid]);
 
   async function save() {
     await api.post("/sales", {
       item_id: item.id,
       quantity_sold: qty,
+      investor_funded_units: invUnits,
       sale_price: totalSalePrice,
       platform: platform || null,
       fees: Number(fees) || 0,
@@ -102,6 +125,13 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
           <DialogTitle>Log sale: {item.name}</DialogTitle>
           <p className="text-xs text-muted-foreground">
             {remaining} of {item.quantity || 1} unit{(item.quantity || 1) > 1 ? "s" : ""} remaining
+            {(item.investor_funded_quantity ?? 0) > 0 && (
+              <>
+                {" · "}
+                <span className="text-primary">{invRemaining} inv</span> /{" "}
+                <span className="text-amber-400">{ownRemaining} you</span>
+              </>
+            )}
           </p>
         </DialogHeader>
 
@@ -130,6 +160,48 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
               onChange={(e) => setQuantitySold(e.target.value)}
             />
           </div>
+
+          {hasMixedPool && (
+            <div className="space-y-1.5 col-span-2">
+              <div className="flex items-end justify-between gap-2">
+                <Label>
+                  Of these {qty}, how many came from investor pool?
+                </Label>
+                <div className="inline-flex gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    onClick={() => setInvestorUnits(String(Math.min(qty, invRemaining)))}
+                  >
+                    All investor
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    onClick={() => setInvestorUnits("0")}
+                  >
+                    All yours
+                  </Button>
+                </div>
+              </div>
+              <Input
+                type="number"
+                min="0"
+                max={Math.min(qty, invRemaining)}
+                step="1"
+                value={investorUnits}
+                onChange={(e) => setInvestorUnits(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                <span className="text-primary">{invUnits} investor-funded</span> /{" "}
+                <span className="text-amber-400">{ownUnits} owner-funded</span>
+              </p>
+            </div>
+          )}
 
           <div className="space-y-1.5 col-span-2">
             <div className="flex items-end justify-between gap-2">
@@ -226,6 +298,13 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
           <Card className="p-4 bg-secondary/30">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3 font-medium">
               Live profit split — selling {qty} of {item.quantity || 1}
+              {hasMixedPool && (
+                <>
+                  {" · "}
+                  <span className="text-primary">{invUnits} inv</span> /{" "}
+                  <span className="text-amber-400">{ownUnits} you</span>
+                </>
+              )}
             </p>
             <div className="grid grid-cols-2 gap-2 text-sm tabular">
               <div>Revenue (sale - tax)</div>
@@ -240,11 +319,25 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
               <div className="text-right border-t border-border pt-1 font-semibold">
                 {currency(split.net_profit)}
               </div>
-              <div className="text-primary">Investor payout (capital + 60%)</div>
-              <div className="text-right text-primary font-semibold">
-                {currency(split.investor_payout_total)}
+              {invUnits > 0 && (
+                <>
+                  <div className="text-primary">
+                    Investor payout (capital{" "}
+                    {currency(split.investor_capital_returned)} + 60% profit)
+                  </div>
+                  <div className="text-right text-primary font-semibold">
+                    {currency(split.investor_payout_total)}
+                  </div>
+                </>
+              )}
+              <div className="text-amber-400">
+                Your cut
+                {ownUnits > 0 && invUnits > 0 && (
+                  <> (your {currency(split.owner_capital_returned)} back + profit)</>
+                )}
+                {ownUnits > 0 && invUnits === 0 && <> (capital + 100% profit)</>}
+                {ownUnits === 0 && invUnits > 0 && <> (40% of investor profit)</>}
               </div>
-              <div className="text-amber-400">Your cut (40%)</div>
               <div className="text-right text-amber-400 font-semibold">
                 {currency(split.owner_payout_total)}
               </div>

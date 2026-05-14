@@ -41,6 +41,7 @@ interface FormState {
   retail_cost: string;
   sales_tax_paid: string;
   quantity: string;
+  investor_funded_quantity: string;
   purchase_date: string;
   condition: string;
   location_bin: string;
@@ -59,6 +60,7 @@ const empty: FormState = {
   retail_cost: "",
   sales_tax_paid: "",
   quantity: "1",
+  investor_funded_quantity: "0",
   purchase_date: new Date().toISOString().slice(0, 10),
   condition: "new",
   location_bin: "",
@@ -115,6 +117,7 @@ export default function Inventory() {
       retail_cost: String(item.retail_cost ?? ""),
       sales_tax_paid: String(item.sales_tax_paid ?? ""),
       quantity: String(item.quantity ?? 1),
+      investor_funded_quantity: String(item.investor_funded_quantity ?? 0),
       purchase_date: item.purchase_date || "",
       condition: item.condition,
       location_bin: item.location_bin || "",
@@ -163,6 +166,10 @@ export default function Inventory() {
       retail_cost: Number(form.retail_cost) || 0,
       sales_tax_paid: Number(form.sales_tax_paid) || 0,
       quantity: Math.max(1, Number(form.quantity) || 1),
+      investor_funded_quantity: Math.max(
+        0,
+        Math.min(Number(form.investor_funded_quantity) || 0, Number(form.quantity) || 1)
+      ),
       purchase_date: form.purchase_date || null,
       condition: form.condition,
       location_bin: form.location_bin || null,
@@ -172,7 +179,8 @@ export default function Inventory() {
       target_sell_price: form.target_sell_price ? Number(form.target_sell_price) : null,
       status: form.status,
       notes: form.notes || null,
-      funded_by_investor_id: 1, // single investor
+      funded_by_investor_id:
+        Number(form.investor_funded_quantity) > 0 ? 1 : null, // single investor
     };
     let saved: InventoryItem;
     if (editing) {
@@ -288,6 +296,13 @@ export default function Inventory() {
                         {item.quantity_remaining ?? 0}
                         <span className="text-muted-foreground">/{item.quantity || 1}</span>
                       </div>
+                      {(item.investor_funded_quantity ?? 0) > 0 && (
+                        <div className="text-[11px] text-muted-foreground">
+                          <span className="text-primary">{item.investor_funded_quantity} inv</span>
+                          {" / "}
+                          <span className="text-amber-400">{item.owner_funded_quantity} you</span>
+                        </div>
+                      )}
                       {sold > 0 && (
                         <div className="text-[11px] text-muted-foreground">{sold} sold</div>
                       )}
@@ -442,6 +457,52 @@ export default function Inventory() {
                   )}
                 </p>
               )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Investor-funded units</Label>
+              <div className="flex gap-1.5">
+                <Input
+                  type="number"
+                  min="0"
+                  max={form.quantity || "1"}
+                  step="1"
+                  value={form.investor_funded_quantity}
+                  onChange={(e) =>
+                    setForm({ ...form, investor_funded_quantity: e.target.value })
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-2"
+                  onClick={() =>
+                    setForm({ ...form, investor_funded_quantity: form.quantity })
+                  }
+                >
+                  All inv
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-2"
+                  onClick={() => setForm({ ...form, investor_funded_quantity: "0" })}
+                >
+                  All you
+                </Button>
+              </div>
+              {(() => {
+                const total = Math.max(1, Number(form.quantity) || 1);
+                const inv = Math.max(0, Math.min(Number(form.investor_funded_quantity) || 0, total));
+                const own = total - inv;
+                return (
+                  <p className="text-xs text-muted-foreground">
+                    <span className="text-primary">{inv} investor</span> /{" "}
+                    <span className="text-amber-400">{own} you</span>
+                  </p>
+                );
+              })()}
             </div>
             <div className="space-y-1.5">
               <Label>Purchase date</Label>

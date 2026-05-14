@@ -112,15 +112,22 @@ def investor_dashboard(
         .all()
     )
 
-    # Capital deployed = total across every unit ever bought (per-unit cost * qty).
-    capital_deployed = sum(i.total_cost for i in funded_items)
-    unsold = [i for i in funded_items if (i.quantity_remaining or 0) > 0]
-    units_sold = sum((s.quantity_sold or 1) for i in funded_items for s in i.sales)
+    # Capital deployed = only the investor-funded units' cost basis.
+    capital_deployed = sum(
+        (i.investor_funded_quantity or 0) * i.unit_cost for i in funded_items
+    )
+    # Units sold attributable to investor pool.
+    units_sold = sum(
+        (s.investor_funded_units or 0) for i in funded_items for s in i.sales
+    )
 
-    unrealized_value_at_cost = sum(i.cost_basis_remaining for i in unsold)
+    unrealized_value_at_cost = sum(
+        (i.investor_funded_quantity_remaining or 0) * i.unit_cost for i in funded_items
+    )
     unrealized_value_at_market = sum(
-        ((i.target_sell_price or i.comp_price_at_buy or i.unit_cost) * (i.quantity_remaining or 0))
-        for i in unsold
+        ((i.target_sell_price or i.comp_price_at_buy or i.unit_cost)
+         * (i.investor_funded_quantity_remaining or 0))
+        for i in funded_items
     )
 
     capital_returned = 0.0
@@ -132,19 +139,25 @@ def investor_dashboard(
     audit: list[dict] = []
 
     for item in funded_items:
+        inv_qty = item.investor_funded_quantity or 0
+        if inv_qty <= 0:
+            continue  # investor wasn't actually funding any units of this item
         audit.append(
             {
                 "type": "buy",
                 "date": item.purchase_date.isoformat() if item.purchase_date else None,
                 "item": item.name,
-                "amount": round(item.total_cost, 2),
+                "amount": round(inv_qty * item.unit_cost, 2),
                 "note": (
-                    f"Funded {item.quantity or 1}x {item.name} @ "
+                    f"Funded {inv_qty} of {item.quantity or 1}x {item.name} @ "
                     f"{item.retailer.name if item.retailer else 'N/A'}"
                 ),
             }
         )
         for sale in item.sales:
+            inv_units = sale.investor_funded_units or 0
+            if inv_units <= 0:
+                continue  # this sale didn't draw from the investor pool
             split = compute_split_for_sale(sale, item, investor)
             if sale.investor_payout_paid:
                 capital_returned += split["investor_capital_returned"]
@@ -156,6 +169,7 @@ def investor_dashboard(
             monthly[mk]["capital_returned"] += split["investor_capital_returned"]
             monthly[mk]["profit"] += split["investor_profit_share"]
             qty = sale.quantity_sold or 1
+            mix = f" ({inv_units} inv)" if inv_units != qty else ""
             audit.append(
                 {
                     "type": "sale",
@@ -163,7 +177,8 @@ def investor_dashboard(
                     "item": item.name,
                     "amount": split["investor_payout_total"],
                     "note": (
-                        f"Sold {qty}x for ${sale.sale_price:.2f} on {sale.platform or 'unknown'}; "
+                        f"Sold {qty}x{mix} for ${sale.sale_price:.2f} on "
+                        f"{sale.platform or 'unknown'}; "
                         f"payout {'paid' if sale.investor_payout_paid else 'pending'}"
                     ),
                 }

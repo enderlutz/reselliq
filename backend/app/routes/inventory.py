@@ -24,6 +24,8 @@ def _serialize(item: InventoryItem) -> dict:
     base["unit_cost"] = item.unit_cost
     base["total_cost"] = item.total_cost
     base["cost_basis_remaining"] = item.cost_basis_remaining
+    base["owner_funded_quantity"] = item.owner_funded_quantity
+    base["owner_funded_quantity_remaining"] = item.owner_funded_quantity_remaining
     return base
 
 
@@ -52,7 +54,18 @@ def create_item(
     data = payload.model_dump()
     qty = max(int(data.get("quantity") or 1), 1)
     data["quantity"] = qty
-    item = InventoryItem(**data, quantity_remaining=qty)
+    inv_qty = max(0, min(int(data.get("investor_funded_quantity") or 0), qty))
+    if inv_qty > 0 and not data.get("funded_by_investor_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="funded_by_investor_id is required when investor_funded_quantity > 0",
+        )
+    data["investor_funded_quantity"] = inv_qty
+    item = InventoryItem(
+        **data,
+        quantity_remaining=qty,
+        investor_funded_quantity_remaining=inv_qty,
+    )
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -88,8 +101,25 @@ def update_item(
         sold = old_qty - (item.quantity_remaining or 0)
         updates["quantity_remaining"] = max(new_qty - sold, 0)
         updates["quantity"] = new_qty
+    # If investor_funded_quantity changes and its remaining wasn't explicitly
+    # set, scale the investor-pool remaining by the same delta.
+    if (
+        "investor_funded_quantity" in updates
+        and "investor_funded_quantity_remaining" not in updates
+    ):
+        old_inv = item.investor_funded_quantity or 0
+        new_inv = max(0, int(updates["investor_funded_quantity"] or 0))
+        # Cap to the (possibly new) total quantity.
+        cap = updates.get("quantity", item.quantity or 1)
+        new_inv = min(new_inv, cap)
+        sold_from_inv = old_inv - (item.investor_funded_quantity_remaining or 0)
+        updates["investor_funded_quantity_remaining"] = max(new_inv - sold_from_inv, 0)
+        updates["investor_funded_quantity"] = new_inv
     for k, v in updates.items():
         setattr(item, k, v)
+    # Final invariant: investor_remaining can't exceed quantity_remaining.
+    if (item.investor_funded_quantity_remaining or 0) > (item.quantity_remaining or 0):
+        item.investor_funded_quantity_remaining = item.quantity_remaining
     db.commit()
     db.refresh(item)
     return _serialize(item)

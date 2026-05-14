@@ -33,6 +33,7 @@ def _serialize(sale: Sale, db: Session) -> dict:
             "id": sale.id,
             "item_id": sale.item_id,
             "quantity_sold": sale.quantity_sold or 1,
+            "investor_funded_units": sale.investor_funded_units or 0,
             "sale_price": sale.sale_price,
             "platform": sale.platform,
             "fees": sale.fees or 0,
@@ -75,12 +76,29 @@ def create_sale(
             detail=f"Only {remaining} unit(s) remaining; cannot sell {qty}.",
         )
 
+    inv_remaining = item.investor_funded_quantity_remaining or 0
+    own_remaining = max(remaining - inv_remaining, 0)
+    inv_units = max(0, min(int(payload.investor_funded_units or 0), qty))
+    own_units = qty - inv_units
+    if inv_units > inv_remaining:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {inv_remaining} investor-funded unit(s) remaining; cannot allocate {inv_units}.",
+        )
+    if own_units > own_remaining:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {own_remaining} owner-funded unit(s) remaining; cannot allocate {own_units}.",
+        )
+
     data = payload.model_dump()
     data["quantity_sold"] = qty
+    data["investor_funded_units"] = inv_units
     sale = Sale(**data)
     db.add(sale)
 
     item.quantity_remaining = remaining - qty
+    item.investor_funded_quantity_remaining = inv_remaining - inv_units
     if item.quantity_remaining <= 0:
         item.status = "sold"
 
@@ -124,7 +142,11 @@ def delete_sale(sale_id: int, db: Session = Depends(get_db), _: User = Depends(r
         raise HTTPException(status_code=404, detail="Sale not found")
     if sale.item:
         qty = sale.quantity_sold or 1
+        inv_units = sale.investor_funded_units or 0
         sale.item.quantity_remaining = (sale.item.quantity_remaining or 0) + qty
+        sale.item.investor_funded_quantity_remaining = (
+            (sale.item.investor_funded_quantity_remaining or 0) + inv_units
+        )
         # If reversing the sale leaves remaining units, item is back in stock.
         if sale.item.quantity_remaining > 0 and sale.item.status == "sold":
             sale.item.status = "in_stock"
@@ -142,10 +164,11 @@ def fee_calc(payload: FeeCalcRequest, _: User = Depends(get_current_user)):
             retail_cost=payload.retail_cost,
             sales_tax_paid=payload.sales_tax_paid,
             quantity_sold=payload.quantity_sold,
+            investor_funded_units=payload.investor_funded_units,
             fees=payload.fees,
             shipping_out=payload.shipping_out,
             sales_tax_collected=payload.sales_tax_collected,
             profit_share_pct=payload.profit_share_pct,
-            investor_funded=True,
+            investor_funded=payload.investor_funded_units > 0,
         )
     )

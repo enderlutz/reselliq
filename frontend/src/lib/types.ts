@@ -61,6 +61,8 @@ export interface SaleSplit {
   investor_profit_share: number;
   investor_payout_total: number;
   owner_capital_returned: number;
+  owner_profit_on_own_units: number;
+  owner_share_of_investor_profit: number;
   owner_payout_total: number;
 }
 

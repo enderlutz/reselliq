@@ -54,15 +54,21 @@ export default function Sales() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {sales.map((sale) => (
+          {sales.map((sale) => {
+            const qty = sale.quantity_sold || 1;
+            const inv = sale.investor_funded_units || 0;
+            const own = Math.max(qty - inv, 0);
+            const hasInv = inv > 0;
+            const hasOwn = own > 0;
+            return (
             <Card key={sale.id} className="p-5">
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <h3 className="font-semibold">
                     {sale.item?.name || `Sale #${sale.id}`}
-                    {(sale.quantity_sold || 1) > 1 && (
+                    {qty > 1 && (
                       <span className="ml-2 text-sm font-normal text-muted-foreground">
-                        × {sale.quantity_sold}
+                        × {qty}
                       </span>
                     )}
                   </h3>
@@ -70,6 +76,18 @@ export default function Sales() {
                     {formatDate(sale.sale_date)}
                     {sale.platform && (
                       <> · <Badge variant="outline">{sale.platform}</Badge></>
+                    )}
+                    {qty > 0 && (hasInv || hasOwn) && (
+                      <>
+                        {" · "}
+                        {hasInv && (
+                          <span className="text-primary">{inv} inv</span>
+                        )}
+                        {hasInv && hasOwn && <span> / </span>}
+                        {hasOwn && (
+                          <span className="text-amber-400">{own} you</span>
+                        )}
+                      </>
                     )}
                   </p>
                 </div>
@@ -116,6 +134,22 @@ export default function Sales() {
                       <span className="text-muted-foreground">Cost basis</span>
                       <span>{currency(sale.split.total_cost)}</span>
                     </div>
+                    {hasInv && hasOwn && (
+                      <>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-primary/80 pl-3">↳ investor ({inv})</span>
+                          <span className="text-primary/80">
+                            {currency(sale.split.investor_capital_returned)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-amber-400/80 pl-3">↳ yours ({own})</span>
+                          <span className="text-amber-400/80">
+                            {currency(sale.split.owner_capital_returned)}
+                          </span>
+                        </div>
+                      </>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Fees</span>
                       <span>{currency(sale.split.fees)}</span>
@@ -160,9 +194,35 @@ export default function Sales() {
                     Your cut
                   </p>
                   <div className="text-sm tabular space-y-0.5">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">40% profit</span>
-                      <span className="font-semibold text-amber-300">
+                    {hasOwn && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Capital back ({own} unit{own > 1 ? "s" : ""})
+                        </span>
+                        <span>{currency(sale.split.owner_capital_returned)}</span>
+                      </div>
+                    )}
+                    {hasOwn && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Profit on your {own}
+                        </span>
+                        <span>{currency(sale.split.owner_profit_on_own_units)}</span>
+                      </div>
+                    )}
+                    {hasInv && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          40% of investor profit
+                        </span>
+                        <span>
+                          {currency(sale.split.owner_share_of_investor_profit)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-semibold border-t border-border pt-1">
+                      <span>Total</span>
+                      <span className="text-amber-300">
                         {currency(sale.split.owner_payout_total)}
                       </span>
                     </div>
@@ -180,7 +240,8 @@ export default function Sales() {
                 </div>
               </div>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
 

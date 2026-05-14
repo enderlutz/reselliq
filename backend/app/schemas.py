@@ -196,6 +196,8 @@ class SaleSplit(BaseModel):
     investor_profit_share: float
     investor_payout_total: float
     owner_capital_returned: float = 0.0
+    owner_profit_on_own_units: float = 0.0
+    owner_share_of_investor_profit: float = 0.0
     owner_payout_total: float
 
 

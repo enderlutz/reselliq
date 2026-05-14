@@ -66,6 +66,8 @@ def compute_split(
         "investor_profit_share": round(investor_profit_share, 2),
         "investor_payout_total": round(investor_payout_total, 2),
         "owner_capital_returned": round(owner_cost_basis, 2),
+        "owner_profit_on_own_units": round(owner_attributable_net, 2),
+        "owner_share_of_investor_profit": round(owner_share_of_investor_profit, 2),
         "owner_payout_total": round(owner_payout_total, 2),
     }
 

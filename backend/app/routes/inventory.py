@@ -101,20 +101,37 @@ def update_item(
         sold = old_qty - (item.quantity_remaining or 0)
         updates["quantity_remaining"] = max(new_qty - sold, 0)
         updates["quantity"] = new_qty
-    # If investor_funded_quantity changes and its remaining wasn't explicitly
-    # set, scale the investor-pool remaining by the same delta.
+    # If investor_funded_quantity changes, validate against existing sales
+    # and rebalance them when the new cap is below what's already allocated.
     if (
         "investor_funded_quantity" in updates
         and "investor_funded_quantity_remaining" not in updates
     ):
-        old_inv = item.investor_funded_quantity or 0
         new_inv = max(0, int(updates["investor_funded_quantity"] or 0))
-        # Cap to the (possibly new) total quantity.
         cap = updates.get("quantity", item.quantity or 1)
         new_inv = min(new_inv, cap)
-        sold_from_inv = old_inv - (item.investor_funded_quantity_remaining or 0)
+
+        sold_from_inv = sum((s.investor_funded_units or 0) for s in item.sales)
+        # Also ensure the new investor pool doesn't blow past total units sold
+        # (you can't have more investor units allocated than units actually exist).
+        if new_inv > cap:
+            new_inv = cap
+
+        if sold_from_inv > new_inv:
+            excess = sold_from_inv - new_inv
+            # FIFO: oldest sales surrender investor units first.
+            for sale in sorted(item.sales, key=lambda s: s.id):
+                if excess <= 0:
+                    break
+                cur = sale.investor_funded_units or 0
+                reduction = min(cur, excess)
+                sale.investor_funded_units = cur - reduction
+                excess -= reduction
+            sold_from_inv = sum((s.investor_funded_units or 0) for s in item.sales)
+
         updates["investor_funded_quantity_remaining"] = max(new_inv - sold_from_inv, 0)
         updates["investor_funded_quantity"] = new_inv
+
     for k, v in updates.items():
         setattr(item, k, v)
     # Final invariant: investor_remaining can't exceed quantity_remaining.

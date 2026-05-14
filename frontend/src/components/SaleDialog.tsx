@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { currency } from "@/lib/format";
-import type { InventoryItem, SaleSplit } from "@/lib/types";
+import type { InventoryItem, Sale, SaleSplit } from "@/lib/types";
 import {
   Dialog,
   DialogContent,
@@ -17,36 +17,62 @@ import { Card } from "@/components/ui/card";
 
 interface Props {
   item: InventoryItem;
+  existingSale?: Sale | null;
   onClose: () => void;
   onSaved: () => void;
 }
 
 type PriceMode = "each" | "total";
 
-export function SaleDialog({ item, onClose, onSaved }: Props) {
-  const remaining = item.quantity_remaining ?? 1;
-  const invRemaining = item.investor_funded_quantity_remaining ?? 0;
-  const ownRemaining = item.owner_funded_quantity_remaining ?? remaining;
+export function SaleDialog({ item, existingSale, onClose, onSaved }: Props) {
+  const isEdit = !!existingSale;
+  // In edit mode, the units this sale already holds are "available" too —
+  // the backend nets them out when applying the delta.
+  const remaining =
+    (item.quantity_remaining ?? 1) + (existingSale?.quantity_sold ?? 0);
+  const invRemaining =
+    (item.investor_funded_quantity_remaining ?? 0) +
+    (existingSale?.investor_funded_units ?? 0);
+  const ownRemaining = Math.max(remaining - invRemaining, 0);
   const hasMixedPool = invRemaining > 0 && ownRemaining > 0;
 
-  const [quantitySold, setQuantitySold] = useState<string>(String(remaining));
-  const [priceMode, setPriceMode] = useState<PriceMode>(remaining > 1 ? "total" : "each");
+  const [quantitySold, setQuantitySold] = useState<string>(
+    String(existingSale?.quantity_sold ?? remaining)
+  );
+  const [priceMode, setPriceMode] = useState<PriceMode>(
+    isEdit ? "total" : remaining > 1 ? "total" : "each"
+  );
   const [priceInput, setPriceInput] = useState(
-    item.target_sell_price != null ? String(item.target_sell_price) : ""
+    existingSale
+      ? String(existingSale.sale_price)
+      : item.target_sell_price != null
+        ? String(item.target_sell_price)
+        : ""
   );
   // Initial investor units suggestion: proportional rounding of the pool.
   const [investorUnits, setInvestorUnits] = useState<string>(() => {
+    if (existingSale) return String(existingSale.investor_funded_units ?? 0);
     if (invRemaining <= 0) return "0";
     if (ownRemaining <= 0) return String(remaining);
     const proportional = Math.round((invRemaining / remaining) * remaining);
     return String(Math.min(proportional, invRemaining));
   });
-  const [platform, setPlatform] = useState("");
-  const [fees, setFees] = useState("");
-  const [shipping, setShipping] = useState("");
-  const [salesTaxCollected, setSalesTaxCollected] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [notes, setNotes] = useState("");
+  const [platform, setPlatform] = useState(existingSale?.platform ?? "");
+  const [fees, setFees] = useState(
+    existingSale?.fees != null ? String(existingSale.fees) : ""
+  );
+  const [shipping, setShipping] = useState(
+    existingSale?.shipping_out != null ? String(existingSale.shipping_out) : ""
+  );
+  const [salesTaxCollected, setSalesTaxCollected] = useState(
+    existingSale?.sales_tax_collected != null
+      ? String(existingSale.sales_tax_collected)
+      : ""
+  );
+  const [date, setDate] = useState(
+    existingSale?.sale_date || new Date().toISOString().slice(0, 10)
+  );
+  const [notes, setNotes] = useState(existingSale?.buyer_notes ?? "");
   const [split, setSplit] = useState<SaleSplit | null>(null);
 
   const qty = useMemo(() => {
@@ -103,8 +129,7 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
   }, [totalSalePrice, qty, invUnits, fees, shipping, salesTaxCollected, item, pricesValid]);
 
   async function save() {
-    await api.post("/sales", {
-      item_id: item.id,
+    const payload = {
       quantity_sold: qty,
       investor_funded_units: invUnits,
       sale_price: totalSalePrice,
@@ -114,7 +139,12 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
       sales_tax_collected: Number(salesTaxCollected) || 0,
       sale_date: date,
       buyer_notes: notes || null,
-    });
+    };
+    if (existingSale) {
+      await api.patch(`/sales/${existingSale.id}`, payload);
+    } else {
+      await api.post("/sales", { item_id: item.id, ...payload });
+    }
     onSaved();
   }
 
@@ -122,7 +152,9 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Log sale: {item.name}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? "Edit sale" : "Log sale"}: {item.name}
+          </DialogTitle>
           <p className="text-xs text-muted-foreground">
             {remaining} of {item.quantity || 1} unit{(item.quantity || 1) > 1 ? "s" : ""} remaining
             {(item.investor_funded_quantity ?? 0) > 0 && (
@@ -350,7 +382,11 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
             Cancel
           </Button>
           <Button onClick={save} disabled={!pricesValid}>
-            {qty === remaining ? "Mark all sold" : `Log sale (${qty} unit${qty > 1 ? "s" : ""})`}
+            {isEdit
+              ? "Save changes"
+              : qty === remaining
+                ? "Mark all sold"
+                : `Log sale (${qty} unit${qty > 1 ? "s" : ""})`}
           </Button>
         </DialogFooter>
       </DialogContent>

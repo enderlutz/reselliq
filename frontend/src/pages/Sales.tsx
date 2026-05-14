@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Pencil, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { currency, formatDate } from "@/lib/format";
 import type { Sale } from "@/lib/types";
@@ -6,10 +7,12 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SaleDialog } from "@/components/SaleDialog";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function Sales() {
   const [sales, setSales] = useState<Sale[]>([]);
+  const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const { user } = useAuth();
   const isOwner = user?.role === "owner";
 
@@ -24,6 +27,17 @@ export default function Sales() {
   async function togglePaid(sale: Sale, who: "investor" | "owner") {
     const field = who === "investor" ? "investor_payout_paid" : "owner_payout_paid";
     await api.patch(`/sales/${sale.id}`, { [field]: !sale[field as keyof Sale] });
+    reload();
+  }
+
+  async function removeSale(sale: Sale) {
+    if (
+      !confirm(
+        `Delete this sale of ${sale.item?.name || `#${sale.id}`}? Units will be returned to inventory.`
+      )
+    )
+      return;
+    await api.delete(`/sales/${sale.id}`);
     reload();
   }
 
@@ -59,13 +73,36 @@ export default function Sales() {
                     )}
                   </p>
                 </div>
-                <div className="text-right">
-                  <div className="text-2xl font-semibold tabular">
-                    {currency(sale.sale_price)}
+                <div className="flex items-start gap-3">
+                  <div className="text-right">
+                    <div className="text-2xl font-semibold tabular">
+                      {currency(sale.sale_price)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Net profit {currency(sale.split.net_profit)}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    Net profit {currency(sale.split.net_profit)}
-                  </div>
+                  {isOwner && (
+                    <div className="flex flex-col gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title="Edit sale"
+                        onClick={() => setEditingSale(sale)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title="Delete sale"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => removeSale(sale)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -145,6 +182,18 @@ export default function Sales() {
             </Card>
           ))}
         </div>
+      )}
+
+      {editingSale && editingSale.item && (
+        <SaleDialog
+          item={editingSale.item}
+          existingSale={editingSale}
+          onClose={() => setEditingSale(null)}
+          onSaved={() => {
+            setEditingSale(null);
+            reload();
+          }}
+        />
       )}
     </div>
   );

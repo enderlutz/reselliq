@@ -17,6 +17,7 @@ import {
   Boxes,
   Crosshair,
   NotebookPen,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,6 +39,7 @@ const ownerNav: NavItem[] = [
     items: [
       { to: "/inventory", label: "Inventory", icon: Package },
       { to: "/sales", label: "Sales", icon: Receipt },
+      { to: "/expenses", label: "Expenses", icon: Wallet },
       { to: "/operations", label: "Operations", icon: Truck },
       { to: "/calculator", label: "Calculator", icon: Calculator },
     ],

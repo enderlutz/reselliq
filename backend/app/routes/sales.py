@@ -24,10 +24,15 @@ def _serialize(sale: Sale, db: Session) -> dict:
     if item and item.funded_by_investor_id:
         investor = db.query(Investor).filter(Investor.id == item.funded_by_investor_id).first()
     split = compute_split_for_sale(sale, item, investor)
+    item_payload = None
+    if item is not None:
+        from ..routes.inventory import _serialize as _serialize_item
+        item_payload = _serialize_item(item)
     base = SaleOut.model_validate(
         {
             "id": sale.id,
             "item_id": sale.item_id,
+            "quantity_sold": sale.quantity_sold or 1,
             "sale_price": sale.sale_price,
             "platform": sale.platform,
             "fees": sale.fees or 0,
@@ -39,7 +44,7 @@ def _serialize(sale: Sale, db: Session) -> dict:
             "owner_payout_paid": sale.owner_payout_paid,
             "paid_at": sale.paid_at,
             "created_at": sale.created_at,
-            "item": item,
+            "item": item_payload,
             "split": SaleSplit(**split),
         }
     )
@@ -61,13 +66,24 @@ def create_sale(
     item = db.query(InventoryItem).filter(InventoryItem.id == payload.item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    if item.sale:
-        raise HTTPException(status_code=400, detail="Item already has a sale")
+
+    qty = max(int(payload.quantity_sold or 1), 1)
+    remaining = item.quantity_remaining if item.quantity_remaining is not None else (item.quantity or 1)
+    if qty > remaining:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {remaining} unit(s) remaining; cannot sell {qty}.",
+        )
 
     data = payload.model_dump()
+    data["quantity_sold"] = qty
     sale = Sale(**data)
     db.add(sale)
-    item.status = "sold"
+
+    item.quantity_remaining = remaining - qty
+    if item.quantity_remaining <= 0:
+        item.status = "sold"
+
     db.commit()
     db.refresh(sale)
     return _serialize(sale, db)
@@ -107,7 +123,11 @@ def delete_sale(sale_id: int, db: Session = Depends(get_db), _: User = Depends(r
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
     if sale.item:
-        sale.item.status = "in_stock"
+        qty = sale.quantity_sold or 1
+        sale.item.quantity_remaining = (sale.item.quantity_remaining or 0) + qty
+        # If reversing the sale leaves remaining units, item is back in stock.
+        if sale.item.quantity_remaining > 0 and sale.item.status == "sold":
+            sale.item.status = "in_stock"
     db.delete(sale)
     db.commit()
     return {"ok": True}
@@ -121,6 +141,7 @@ def fee_calc(payload: FeeCalcRequest, _: User = Depends(get_current_user)):
             sale_price=payload.sale_price,
             retail_cost=payload.retail_cost,
             sales_tax_paid=payload.sales_tax_paid,
+            quantity_sold=payload.quantity_sold,
             fees=payload.fees,
             shipping_out=payload.shipping_out,
             sales_tax_collected=payload.sales_tax_collected,

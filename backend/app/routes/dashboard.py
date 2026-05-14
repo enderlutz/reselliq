@@ -23,14 +23,15 @@ def owner_dashboard(db: Session = Depends(get_db), _: User = Depends(require_own
     sales = db.query(Sale).all()
     investors_by_id = {i.id: i for i in db.query(Investor).all()}
 
-    in_stock = [i for i in items if i.status in ("in_stock", "listed")]
+    in_stock = [i for i in items if i.status in ("in_stock", "listed") and (i.quantity_remaining or 0) > 0]
     items_in_stock = sum(1 for i in items if i.status == "in_stock")
     items_listed = sum(1 for i in items if i.status == "listed")
-    items_sold = sum(1 for i in items if i.status == "sold")
+    items_sold = sum((s.quantity_sold or 1) for s in sales)
 
-    inventory_value_at_cost = sum(i.total_cost for i in in_stock)
+    inventory_value_at_cost = sum(i.cost_basis_remaining for i in in_stock)
     inventory_value_at_market = sum(
-        (i.target_sell_price or i.comp_price_at_buy or i.total_cost) for i in in_stock
+        ((i.target_sell_price or i.comp_price_at_buy or i.unit_cost) * (i.quantity_remaining or 0))
+        for i in in_stock
     )
 
     total_revenue = 0.0
@@ -72,8 +73,9 @@ def owner_dashboard(db: Session = Depends(get_db), _: User = Depends(require_own
     monthly_pl = sorted(monthly.values(), key=lambda r: r["month"])
     avg_days_to_sell = (sum(sell_durations) / len(sell_durations)) if sell_durations else None
     sell_through_rate = None
-    if items:
-        sell_through_rate = round(items_sold / len(items) * 100, 2)
+    total_units = sum((i.quantity or 1) for i in items)
+    if total_units:
+        sell_through_rate = round(items_sold / total_units * 100, 2)
 
     return OwnerDashboard(
         items_in_stock=items_in_stock,
@@ -110,13 +112,15 @@ def investor_dashboard(
         .all()
     )
 
+    # Capital deployed = total across every unit ever bought (per-unit cost * qty).
     capital_deployed = sum(i.total_cost for i in funded_items)
-    items_sold_list = [i for i in funded_items if i.sale is not None]
-    unsold = [i for i in funded_items if i.sale is None]
+    unsold = [i for i in funded_items if (i.quantity_remaining or 0) > 0]
+    units_sold = sum((s.quantity_sold or 1) for i in funded_items for s in i.sales)
 
-    unrealized_value_at_cost = sum(i.total_cost for i in unsold)
+    unrealized_value_at_cost = sum(i.cost_basis_remaining for i in unsold)
     unrealized_value_at_market = sum(
-        (i.target_sell_price or i.comp_price_at_buy or i.total_cost) for i in unsold
+        ((i.target_sell_price or i.comp_price_at_buy or i.unit_cost) * (i.quantity_remaining or 0))
+        for i in unsold
     )
 
     capital_returned = 0.0
@@ -134,31 +138,36 @@ def investor_dashboard(
                 "date": item.purchase_date.isoformat() if item.purchase_date else None,
                 "item": item.name,
                 "amount": round(item.total_cost, 2),
-                "note": f"Funded {item.name} @ {item.retailer.name if item.retailer else 'N/A'}",
+                "note": (
+                    f"Funded {item.quantity or 1}x {item.name} @ "
+                    f"{item.retailer.name if item.retailer else 'N/A'}"
+                ),
             }
         )
-
-    for item in items_sold_list:
-        sale = item.sale
-        split = compute_split_for_sale(sale, item, investor)
-        if sale.investor_payout_paid:
-            capital_returned += split["investor_capital_returned"]
-            profit_earned += split["investor_profit_share"]
-        else:
-            pending_payouts += split["investor_payout_total"]
-        mk = _month_key(sale.sale_date or date.today())
-        monthly[mk]["month"] = mk
-        monthly[mk]["capital_returned"] += split["investor_capital_returned"]
-        monthly[mk]["profit"] += split["investor_profit_share"]
-        audit.append(
-            {
-                "type": "sale",
-                "date": sale.sale_date.isoformat() if sale.sale_date else None,
-                "item": item.name,
-                "amount": split["investor_payout_total"],
-                "note": f"Sold for ${sale.sale_price:.2f} on {sale.platform or 'unknown'}; payout {'paid' if sale.investor_payout_paid else 'pending'}",
-            }
-        )
+        for sale in item.sales:
+            split = compute_split_for_sale(sale, item, investor)
+            if sale.investor_payout_paid:
+                capital_returned += split["investor_capital_returned"]
+                profit_earned += split["investor_profit_share"]
+            else:
+                pending_payouts += split["investor_payout_total"]
+            mk = _month_key(sale.sale_date or date.today())
+            monthly[mk]["month"] = mk
+            monthly[mk]["capital_returned"] += split["investor_capital_returned"]
+            monthly[mk]["profit"] += split["investor_profit_share"]
+            qty = sale.quantity_sold or 1
+            audit.append(
+                {
+                    "type": "sale",
+                    "date": sale.sale_date.isoformat() if sale.sale_date else None,
+                    "item": item.name,
+                    "amount": split["investor_payout_total"],
+                    "note": (
+                        f"Sold {qty}x for ${sale.sale_price:.2f} on {sale.platform or 'unknown'}; "
+                        f"payout {'paid' if sale.investor_payout_paid else 'pending'}"
+                    ),
+                }
+            )
 
     audit.sort(key=lambda r: r.get("date") or "", reverse=True)
 
@@ -171,7 +180,7 @@ def investor_dashboard(
         total_profit_earned=round(profit_earned, 2),
         pending_payouts=round(pending_payouts, 2),
         item_count_funded=len(funded_items),
-        items_sold=len(items_sold_list),
+        items_sold=units_sold,
         monthly_payouts=[
             {**r, "capital_returned": round(r["capital_returned"], 2), "profit": round(r["profit"], 2)}
             for r in sorted(monthly.values(), key=lambda x: x["month"])

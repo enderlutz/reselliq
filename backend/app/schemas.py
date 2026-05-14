@@ -1,3 +1,4 @@
+import datetime as _dt
 from datetime import date, datetime
 from typing import Optional
 
@@ -91,8 +92,9 @@ class InventoryItemBase(BaseModel):
     sku: Optional[str] = None
     retailer_id: Optional[int] = None
     funded_by_investor_id: Optional[int] = None
-    retail_cost: float = 0.0
-    sales_tax_paid: float = 0.0
+    retail_cost: float = 0.0  # per-unit, pre-tax
+    sales_tax_paid: float = 0.0  # per-unit
+    quantity: int = 1
     purchase_date: Optional[date] = None
     condition: str = "new"
     location_bin: Optional[str] = None
@@ -116,6 +118,8 @@ class InventoryItemUpdate(BaseModel):
     funded_by_investor_id: Optional[int] = None
     retail_cost: Optional[float] = None
     sales_tax_paid: Optional[float] = None
+    quantity: Optional[int] = None
+    quantity_remaining: Optional[int] = None
     purchase_date: Optional[date] = None
     condition: Optional[str] = None
     location_bin: Optional[str] = None
@@ -130,7 +134,10 @@ class InventoryItemUpdate(BaseModel):
 
 class InventoryItemOut(InventoryItemBase):
     id: int
-    total_cost: float
+    quantity_remaining: int
+    unit_cost: float
+    total_cost: float  # unit_cost * quantity (total capital deployed)
+    cost_basis_remaining: float
     created_at: datetime
     updated_at: datetime
     retailer: Optional[RetailerOut] = None
@@ -144,7 +151,8 @@ class InventoryItemOut(InventoryItemBase):
 
 class SaleBase(BaseModel):
     item_id: int
-    sale_price: float
+    quantity_sold: int = 1
+    sale_price: float  # total for the lot
     platform: Optional[str] = None
     fees: float = 0.0
     shipping_out: float = 0.0
@@ -158,6 +166,7 @@ class SaleCreate(SaleBase):
 
 
 class SaleUpdate(BaseModel):
+    quantity_sold: Optional[int] = None
     sale_price: Optional[float] = None
     platform: Optional[str] = None
     fees: Optional[float] = None
@@ -192,12 +201,14 @@ class SaleOut(SaleBase):
 
     class Config:
         from_attributes = True
+        arbitrary_types_allowed = True
 
 
 class FeeCalcRequest(BaseModel):
-    sale_price: float
-    retail_cost: float
-    sales_tax_paid: float = 0.0
+    sale_price: float  # total for the lot
+    retail_cost: float  # per-unit, pre-tax
+    sales_tax_paid: float = 0.0  # per-unit
+    quantity_sold: int = 1
     fees: float = 0.0
     shipping_out: float = 0.0
     sales_tax_collected: float = 0.0
@@ -297,6 +308,51 @@ class ReturnOut(ReturnBase):
 
     class Config:
         from_attributes = True
+
+
+# ---------- Expenses ----------
+
+class ExpenseBase(BaseModel):
+    date: Optional[_dt.date] = None
+    category: str = "other"
+    vendor: Optional[str] = None
+    description: str
+    amount: float = 0.0
+    recurring: bool = False
+    notes: Optional[str] = None
+
+
+class ExpenseCreate(ExpenseBase):
+    pass
+
+
+class ExpenseUpdate(BaseModel):
+    date: Optional[_dt.date] = None
+    category: Optional[str] = None
+    vendor: Optional[str] = None
+    description: Optional[str] = None
+    amount: Optional[float] = None
+    recurring: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class ExpenseOut(ExpenseBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ExpenseSummary(BaseModel):
+    """Aggregate stats over a date window."""
+    month: str  # YYYY-MM (the focus month)
+    month_total: float
+    month_by_category: dict[str, float]
+    infrastructure_this_month: float
+    recurring_monthly_total: float  # sum of `recurring=True` amounts (estimated MRR cost)
+    ytd_total: float
+    monthly: list[dict]  # [{month: "YYYY-MM", total: float, infrastructure: float}]
 
 
 # ---------- Link parser ----------

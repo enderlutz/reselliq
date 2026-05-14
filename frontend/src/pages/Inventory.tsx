@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Link2, Image as ImageIcon, Pencil, Trash2, Receipt as ReceiptIcon, Loader2 } from "lucide-react";
+import { Plus, Link2, Image as ImageIcon, Pencil, Trash2, Loader2, DollarSign } from "lucide-react";
 import { api } from "@/lib/api";
 import { currency, formatDate } from "@/lib/format";
 import type { InventoryItem, Retailer, ParseLinkResponse } from "@/lib/types";
@@ -40,6 +40,7 @@ interface FormState {
   retailer_id: string;
   retail_cost: string;
   sales_tax_paid: string;
+  quantity: string;
   purchase_date: string;
   condition: string;
   location_bin: string;
@@ -57,6 +58,7 @@ const empty: FormState = {
   retailer_id: "",
   retail_cost: "",
   sales_tax_paid: "",
+  quantity: "1",
   purchase_date: new Date().toISOString().slice(0, 10),
   condition: "new",
   location_bin: "",
@@ -112,6 +114,7 @@ export default function Inventory() {
       retailer_id: item.retailer_id ? String(item.retailer_id) : "",
       retail_cost: String(item.retail_cost ?? ""),
       sales_tax_paid: String(item.sales_tax_paid ?? ""),
+      quantity: String(item.quantity ?? 1),
       purchase_date: item.purchase_date || "",
       condition: item.condition,
       location_bin: item.location_bin || "",
@@ -159,6 +162,7 @@ export default function Inventory() {
       retailer_id: form.retailer_id ? Number(form.retailer_id) : null,
       retail_cost: Number(form.retail_cost) || 0,
       sales_tax_paid: Number(form.sales_tax_paid) || 0,
+      quantity: Math.max(1, Number(form.quantity) || 1),
       purchase_date: form.purchase_date || null,
       condition: form.condition,
       location_bin: form.location_bin || null,
@@ -232,81 +236,109 @@ export default function Inventory() {
                 <th className="py-3 px-4">Item</th>
                 <th className="py-3 px-4">Retailer</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 tabular text-right">Cost</th>
+                <th className="py-3 px-4 tabular text-right">Qty</th>
+                <th className="py-3 px-4 tabular text-right">Retail (each)</th>
+                <th className="py-3 px-4 tabular text-right">Post-tax (each)</th>
                 <th className="py-3 px-4 tabular text-right">Target</th>
                 <th className="py-3 px-4 tabular text-right">Days</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => (
-                <tr
-                  key={item.id}
-                  className="border-t border-border hover:bg-secondary/30 transition-colors"
-                >
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-3">
-                      {item.photo_path ? (
-                        <img
-                          src={item.photo_path}
-                          alt=""
-                          className="h-10 w-10 rounded-md object-cover bg-secondary"
-                        />
-                      ) : (
-                        <div className="h-10 w-10 rounded-md bg-secondary flex items-center justify-center text-muted-foreground">
-                          <ImageIcon className="h-4 w-4" />
-                        </div>
-                      )}
-                      <div>
-                        <div className="font-medium">{item.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {item.sku || `Bought ${formatDate(item.purchase_date)}`}
+              {filtered.map((item) => {
+                const sold = (item.quantity || 1) - (item.quantity_remaining ?? 0);
+                const canSell =
+                  item.status !== "returned" && (item.quantity_remaining ?? 0) > 0;
+                return (
+                  <tr
+                    key={item.id}
+                    className="border-t border-border hover:bg-secondary/30 transition-colors"
+                  >
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-3">
+                        {item.photo_path ? (
+                          <img
+                            src={item.photo_path}
+                            alt=""
+                            className="h-10 w-10 rounded-md object-cover bg-secondary"
+                          />
+                        ) : (
+                          <div className="h-10 w-10 rounded-md bg-secondary flex items-center justify-center text-muted-foreground">
+                            <ImageIcon className="h-4 w-4" />
+                          </div>
+                        )}
+                        <div>
+                          <div className="font-medium">{item.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {item.sku || `Bought ${formatDate(item.purchase_date)}`}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 text-muted-foreground">
-                    {item.retailer?.name || "—"}
-                  </td>
-                  <td className="py-3 px-4">
-                    <Badge variant={STATUS_VARIANT[item.status] || "secondary"}>
-                      {item.status.replace("_", " ")}
-                    </Badge>
-                  </td>
-                  <td className="py-3 px-4 tabular text-right">{currency(item.total_cost)}</td>
-                  <td className="py-3 px-4 tabular text-right text-muted-foreground">
-                    {item.target_sell_price ? currency(item.target_sell_price) : "—"}
-                  </td>
-                  <td className="py-3 px-4 tabular text-right text-muted-foreground">
-                    {item.days_held != null ? item.days_held : "—"}
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <div className="flex justify-end gap-1">
-                      {item.status !== "sold" && item.status !== "returned" && (
+                    </td>
+                    <td className="py-3 px-4 text-muted-foreground">
+                      {item.retailer?.name || "—"}
+                    </td>
+                    <td className="py-3 px-4">
+                      <Badge variant={STATUS_VARIANT[item.status] || "secondary"}>
+                        {item.status.replace("_", " ")}
+                      </Badge>
+                    </td>
+                    <td className="py-3 px-4 tabular text-right">
+                      <div className="font-medium">
+                        {item.quantity_remaining ?? 0}
+                        <span className="text-muted-foreground">/{item.quantity || 1}</span>
+                      </div>
+                      {sold > 0 && (
+                        <div className="text-[11px] text-muted-foreground">{sold} sold</div>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 tabular text-right">
+                      {currency(item.retail_cost)}
+                    </td>
+                    <td className="py-3 px-4 tabular text-right">
+                      {currency(item.unit_cost)}
+                    </td>
+                    <td className="py-3 px-4 tabular text-right text-muted-foreground">
+                      {item.target_sell_price ? currency(item.target_sell_price) : "—"}
+                    </td>
+                    <td className="py-3 px-4 tabular text-right text-muted-foreground">
+                      {item.days_held != null ? item.days_held : "—"}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex justify-end items-center gap-1">
+                        {canSell && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="h-8"
+                            onClick={() => setSaleItem(item)}
+                          >
+                            <DollarSign className="h-4 w-4" />
+                            Mark sold
+                          </Button>
+                        )}
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Log sale"
-                          onClick={() => setSaleItem(item)}
+                          onClick={() => openEdit(item)}
+                          title="Edit"
                         >
-                          <ReceiptIcon className="h-4 w-4" />
+                          <Pencil className="h-4 w-4" />
                         </Button>
-                      )}
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(item)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => remove(item)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => remove(item)}
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </Card>
@@ -376,7 +408,7 @@ export default function Inventory() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Retail cost</Label>
+              <Label>Retail cost (per unit, pre-tax)</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -385,13 +417,31 @@ export default function Inventory() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Sales tax paid</Label>
+              <Label>Sales tax paid (per unit)</Label>
               <Input
                 type="number"
                 step="0.01"
                 value={form.sales_tax_paid}
                 onChange={(e) => setForm({ ...form, sales_tax_paid: e.target.value })}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Quantity</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={form.quantity}
+                onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+              />
+              {Number(form.quantity) > 1 && Number(form.retail_cost) > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Total capital: {currency(
+                    (Number(form.retail_cost) + Number(form.sales_tax_paid || 0)) *
+                      Number(form.quantity || 1)
+                  )}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Purchase date</Label>

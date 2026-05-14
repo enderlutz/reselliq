@@ -44,7 +44,14 @@ export default function Sales() {
             <Card key={sale.id} className="p-5">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <h3 className="font-semibold">{sale.item?.name || `Sale #${sale.id}`}</h3>
+                  <h3 className="font-semibold">
+                    {sale.item?.name || `Sale #${sale.id}`}
+                    {(sale.quantity_sold || 1) > 1 && (
+                      <span className="ml-2 text-sm font-normal text-muted-foreground">
+                        × {sale.quantity_sold}
+                      </span>
+                    )}
+                  </h3>
                   <p className="text-sm text-muted-foreground">
                     {formatDate(sale.sale_date)}
                     {sale.platform && (

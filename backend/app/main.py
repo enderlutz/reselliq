@@ -12,6 +12,7 @@ from .routes import (
     auth,
     buylist,
     dashboard,
+    expenses,
     inventory,
     investors,
     journal,
@@ -26,9 +27,11 @@ from .routes import (
 )
 from .seed import seed_if_empty
 from .services import stock_scheduler
+from .services.migrate import run_migrations
 
 assert_production_config()
 Base.metadata.create_all(bind=engine)
+run_migrations()
 seed_if_empty()
 
 app = FastAPI(title="ResellIQ", version="0.1.0")
@@ -58,6 +61,7 @@ app.include_router(sales.router)
 app.include_router(buylist.router)
 app.include_router(trips.router)
 app.include_router(returns.router)
+app.include_router(expenses.router)
 app.include_router(dashboard.router)
 app.include_router(parser.router)
 app.include_router(investors.router)

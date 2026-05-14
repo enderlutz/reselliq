@@ -24,9 +24,13 @@ export interface InventoryItem {
   sku?: string | null;
   retailer_id?: number | null;
   funded_by_investor_id?: number | null;
-  retail_cost: number;
-  sales_tax_paid: number;
-  total_cost: number;
+  retail_cost: number; // per-unit, pre-tax
+  sales_tax_paid: number; // per-unit
+  quantity: number;
+  quantity_remaining: number;
+  unit_cost: number;
+  total_cost: number; // unit_cost * quantity
+  cost_basis_remaining: number;
   purchase_date?: string | null;
   condition: string;
   location_bin?: string | null;
@@ -58,7 +62,8 @@ export interface SaleSplit {
 export interface Sale {
   id: number;
   item_id: number;
-  sale_price: number;
+  quantity_sold: number;
+  sale_price: number; // total for the lot
   platform?: string | null;
   fees: number;
   shipping_out: number;
@@ -148,6 +153,36 @@ export interface InvestorDashboard {
   items_sold: number;
   monthly_payouts: { month: string; capital_returned: number; profit: number }[];
   audit_log: { type: string; date: string | null; item: string; amount: number; note: string }[];
+}
+
+export type ExpenseCategory =
+  | "infrastructure"
+  | "supplies"
+  | "tools"
+  | "fees"
+  | "mileage"
+  | "other";
+
+export interface Expense {
+  id: number;
+  date: string;
+  category: ExpenseCategory | string;
+  vendor?: string | null;
+  description: string;
+  amount: number;
+  recurring: boolean;
+  notes?: string | null;
+  created_at: string;
+}
+
+export interface ExpenseSummary {
+  month: string;
+  month_total: number;
+  month_by_category: Record<string, number>;
+  infrastructure_this_month: number;
+  recurring_monthly_total: number;
+  ytd_total: number;
+  monthly: { month: string; total: number; infrastructure: number }[];
 }
 
 export interface ParseLinkResponse {

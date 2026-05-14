@@ -15,6 +15,7 @@ import Watcher from "@/pages/Watcher";
 import Playbook from "@/pages/Playbook";
 import Analytics from "@/pages/Analytics";
 import Journal from "@/pages/Journal";
+import Expenses from "@/pages/Expenses";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -116,6 +117,14 @@ export default function App() {
               element={
                 <OwnerOnly>
                   <Journal />
+                </OwnerOnly>
+              }
+            />
+            <Route
+              path="expenses"
+              element={
+                <OwnerOnly>
+                  <Expenses />
                 </OwnerOnly>
               }
             />

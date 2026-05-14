@@ -21,8 +21,14 @@ interface Props {
   onSaved: () => void;
 }
 
+type PriceMode = "each" | "total";
+
 export function SaleDialog({ item, onClose, onSaved }: Props) {
-  const [salePrice, setSalePrice] = useState(
+  const remaining = item.quantity_remaining ?? 1;
+
+  const [quantitySold, setQuantitySold] = useState<string>(String(remaining));
+  const [priceMode, setPriceMode] = useState<PriceMode>(remaining > 1 ? "total" : "each");
+  const [priceInput, setPriceInput] = useState(
     item.target_sell_price != null ? String(item.target_sell_price) : ""
   );
   const [platform, setPlatform] = useState("");
@@ -33,7 +39,23 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
   const [notes, setNotes] = useState("");
   const [split, setSplit] = useState<SaleSplit | null>(null);
 
-  const pricesValid = useMemo(() => Number(salePrice) > 0, [salePrice]);
+  const qty = useMemo(() => {
+    const n = Math.floor(Number(quantitySold) || 0);
+    return Math.max(1, Math.min(n, remaining));
+  }, [quantitySold, remaining]);
+
+  // Always send sale_price as TOTAL to the backend.
+  const totalSalePrice = useMemo(() => {
+    const p = Number(priceInput) || 0;
+    return priceMode === "each" ? p * qty : p;
+  }, [priceInput, priceMode, qty]);
+
+  const perUnitSalePrice = useMemo(
+    () => (qty > 0 ? totalSalePrice / qty : 0),
+    [totalSalePrice, qty]
+  );
+
+  const pricesValid = totalSalePrice > 0 && qty >= 1 && qty <= remaining;
 
   useEffect(() => {
     if (!pricesValid) {
@@ -43,9 +65,10 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
     const t = setTimeout(async () => {
       try {
         const res = await api.post<SaleSplit>("/sales/calc", {
-          sale_price: Number(salePrice),
+          sale_price: totalSalePrice,
           retail_cost: item.retail_cost,
           sales_tax_paid: item.sales_tax_paid,
+          quantity_sold: qty,
           fees: Number(fees) || 0,
           shipping_out: Number(shipping) || 0,
           sales_tax_collected: Number(salesTaxCollected) || 0,
@@ -55,12 +78,13 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
       } catch {}
     }, 200);
     return () => clearTimeout(t);
-  }, [salePrice, fees, shipping, salesTaxCollected, item, pricesValid]);
+  }, [totalSalePrice, qty, fees, shipping, salesTaxCollected, item, pricesValid]);
 
   async function save() {
     await api.post("/sales", {
       item_id: item.id,
-      sale_price: Number(salePrice),
+      quantity_sold: qty,
+      sale_price: totalSalePrice,
       platform: platform || null,
       fees: Number(fees) || 0,
       shipping_out: Number(shipping) || 0,
@@ -76,19 +100,83 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Log sale: {item.name}</DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            {remaining} of {item.quantity || 1} unit{(item.quantity || 1) > 1 ? "s" : ""} remaining
+          </p>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>Sale price</Label>
+          <div className="space-y-1.5 col-span-2">
+            <div className="flex items-end justify-between gap-2">
+              <Label>Quantity sold</Label>
+              {remaining > 1 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7"
+                  onClick={() => setQuantitySold(String(remaining))}
+                >
+                  Sell all {remaining}
+                </Button>
+              )}
+            </div>
+            <Input
+              type="number"
+              min="1"
+              max={remaining}
+              step="1"
+              value={quantitySold}
+              onChange={(e) => setQuantitySold(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1.5 col-span-2">
+            <div className="flex items-end justify-between gap-2">
+              <Label>Sale price</Label>
+              {qty > 1 && (
+                <div className="inline-flex rounded-md border border-border text-xs overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setPriceMode("each")}
+                    className={`px-3 py-1 transition-colors ${
+                      priceMode === "each"
+                        ? "bg-primary/15 text-primary"
+                        : "text-muted-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    Per unit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPriceMode("total")}
+                    className={`px-3 py-1 transition-colors ${
+                      priceMode === "total"
+                        ? "bg-primary/15 text-primary"
+                        : "text-muted-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    Total
+                  </button>
+                </div>
+              )}
+            </div>
             <Input
               type="number"
               step="0.01"
-              value={salePrice}
-              onChange={(e) => setSalePrice(e.target.value)}
+              value={priceInput}
+              onChange={(e) => setPriceInput(e.target.value)}
               autoFocus
             />
+            {qty > 1 && pricesValid && (
+              <p className="text-xs text-muted-foreground tabular">
+                {priceMode === "each"
+                  ? `Total: ${currency(totalSalePrice)}`
+                  : `Per unit: ${currency(perUnitSalePrice)}`}
+              </p>
+            )}
           </div>
+
           <div className="space-y-1.5">
             <Label>Platform</Label>
             <Input
@@ -98,7 +186,11 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Fees</Label>
+            <Label>Sale date</Label>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Fees (total)</Label>
             <Input
               type="number"
               step="0.01"
@@ -107,7 +199,7 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Shipping out</Label>
+            <Label>Shipping out (total)</Label>
             <Input
               type="number"
               step="0.01"
@@ -115,7 +207,7 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
               onChange={(e) => setShipping(e.target.value)}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 col-span-2">
             <Label>Sales tax collected (pass-through)</Label>
             <Input
               type="number"
@@ -123,10 +215,6 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
               value={salesTaxCollected}
               onChange={(e) => setSalesTaxCollected(e.target.value)}
             />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Sale date</Label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
           <div className="col-span-2 space-y-1.5">
             <Label>Notes</Label>
@@ -137,12 +225,12 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
         {split && (
           <Card className="p-4 bg-secondary/30">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3 font-medium">
-              Live profit split
+              Live profit split — selling {qty} of {item.quantity || 1}
             </p>
             <div className="grid grid-cols-2 gap-2 text-sm tabular">
               <div>Revenue (sale - tax)</div>
               <div className="text-right">{currency(split.revenue)}</div>
-              <div>Total cost</div>
+              <div>Cost basis ({qty} × {currency(item.unit_cost)})</div>
               <div className="text-right text-muted-foreground">−{currency(split.total_cost)}</div>
               <div>Fees</div>
               <div className="text-right text-muted-foreground">−{currency(split.fees)}</div>
@@ -169,7 +257,7 @@ export function SaleDialog({ item, onClose, onSaved }: Props) {
             Cancel
           </Button>
           <Button onClick={save} disabled={!pricesValid}>
-            Log sale
+            {qty === remaining ? "Mark all sold" : `Log sale (${qty} unit${qty > 1 ? "s" : ""})`}
           </Button>
         </DialogFooter>
       </DialogContent>

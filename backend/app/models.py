@@ -69,8 +69,10 @@ class InventoryItem(Base):
     sku = Column(String)
     retailer_id = Column(Integer, ForeignKey("retailers.id"))
     funded_by_investor_id = Column(Integer, ForeignKey("investors.id"))
-    retail_cost = Column(Float, nullable=False, default=0.0)
-    sales_tax_paid = Column(Float, default=0.0)
+    retail_cost = Column(Float, nullable=False, default=0.0)  # per-unit, pre-tax
+    sales_tax_paid = Column(Float, default=0.0)  # per-unit
+    quantity = Column(Integer, nullable=False, default=1)
+    quantity_remaining = Column(Integer, nullable=False, default=1)
     purchase_date = Column(Date, default=lambda: datetime.utcnow().date())
     condition = Column(String, default="new")  # new | open_box | used | damaged
     location_bin = Column(String)
@@ -86,24 +88,35 @@ class InventoryItem(Base):
 
     retailer = relationship("Retailer", back_populates="items")
     funder = relationship("Investor", back_populates="funded_items")
-    sale = relationship(
-        "Sale", uselist=False, back_populates="item", cascade="all, delete-orphan"
+    sales = relationship(
+        "Sale", back_populates="item", cascade="all, delete-orphan",
+        order_by="Sale.sale_date.desc()",
     )
     returns = relationship(
         "ReturnRecord", back_populates="item", cascade="all, delete-orphan"
     )
 
     @property
-    def total_cost(self) -> float:
+    def unit_cost(self) -> float:
         return (self.retail_cost or 0) + (self.sales_tax_paid or 0)
+
+    @property
+    def total_cost(self) -> float:
+        """Total capital deployed across all units bought."""
+        return self.unit_cost * (self.quantity or 1)
+
+    @property
+    def cost_basis_remaining(self) -> float:
+        return self.unit_cost * (self.quantity_remaining or 0)
 
 
 class Sale(Base):
     __tablename__ = "sales"
 
     id = Column(Integer, primary_key=True)
-    item_id = Column(Integer, ForeignKey("inventory_items.id"), unique=True, nullable=False)
-    sale_price = Column(Float, nullable=False)
+    item_id = Column(Integer, ForeignKey("inventory_items.id"), nullable=False, index=True)
+    quantity_sold = Column(Integer, nullable=False, default=1)
+    sale_price = Column(Float, nullable=False)  # total for the lot (quantity_sold units)
     platform = Column(String)
     fees = Column(Float, default=0.0)
     shipping_out = Column(Float, default=0.0)
@@ -115,7 +128,7 @@ class Sale(Base):
     paid_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    item = relationship("InventoryItem", back_populates="sale")
+    item = relationship("InventoryItem", back_populates="sales")
 
 
 class BuylistItem(Base):
@@ -149,6 +162,21 @@ class SourcingTrip(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     retailer = relationship("Retailer", back_populates="trips")
+
+
+class Expense(Base):
+    __tablename__ = "expenses"
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, default=lambda: datetime.utcnow().date(), nullable=False)
+    category = Column(String, nullable=False, default="other")
+    # infrastructure | supplies | tools | fees | mileage | other
+    vendor = Column(String)
+    description = Column(String, nullable=False)
+    amount = Column(Float, nullable=False, default=0.0)
+    recurring = Column(Boolean, default=False)  # marks monthly recurring infra costs
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class ReturnRecord(Base):
